@@ -18,24 +18,37 @@ def get_data(field = None):
         q = rec["q"]
         slopes = tuple(sorted(rec["slopes"]))
         have_hyp = (rec["hyp_count"] > 0)
-        poly = R(list(reversed(rec["poly"])))
+        poly = R(rec["poly"])
         factors = poly.factor()
         exps = classify_factors(factors)
-        data[q][exps, slope_types[slopes], have_hyp].append(rec["poly"])
+        coeffs = get_abc(factors, exps)
+        data[q][exps, slope_types[slopes], have_hyp].append((rec["poly"], coeffs))
     return data
 
 def write_data(data):
     for q, D in data.items():
         for (exps, slopes, have_hyp), polys in D.items():
             
-            filename = f"temp/data_{q}_{exps}_{slopes}_{have_hyp}.txt"
+            filename = f"temp/data_{have_hyp}_{q}_{exps}_{slopes}.txt"
             with open(filename, "w") as F:
                 for poly in polys:
-                    _ = F.write(",".join(str(c) for c in poly) + "\n")
+                    # _ = F.write(", ".join(str(c) for c in poly) + "\n")
+                    remainders = [r%q for r in poly[1]]
+                    F.write(f"{poly[1]}, {remainders} \n")
 
 
-def our_jacobi_rules(iso_class, poly):
-    if iso_class.has_jacobian == -1:
+def our_jacobi_rules(iso_class, poly, slopes, q, factors, exps, coeffs):
+    p = q.smallest_prime_factor()
+    R = PolynomialRing(ZZ, 'x')
+    
+    # irreducible polynomial with NP slopes 1/2-...-1/2
+    # non-jacobians are of the form x^6 + pqx^3 + q^3 or x^6 + pqx^3 + q^3
+    rule1 = len(factors) == 1 and (slopes == 4) and (coeffs[0] == 0) and (coeffs[1] == 0) and ((coeffs[2] == -p*q) or (coeffs[2] == p*q))
+    
+    # if slope type 4 and characteristic is even and variety splits as quadratic and quartic
+    rule2 = (slopes == 4) and (q % 2 == 0) and (exps == (2, 4))
+    
+    if iso_class.has_jacobian == -1 or rule1 or rule2:
         return False
     return True
 
@@ -86,21 +99,27 @@ def sort_data(data):
     new_obstructions = []
     known_obstructions = []
     jacobians = []
+    false_positives = []
+    false_positives_data = defaultdict(lambda: defaultdict(list))
     new_obstr_data = defaultdict(lambda: defaultdict(list))
     for q, D in data.items():
         for (exps, slope, have_hyp), polys in D.items():
-            for polynom in polys:
+            for polynom_ in polys:
+                polynom = polynom_[0]
                 iso_class = IsogenyClass(poly=polynom)
-                guess = our_jacobi_rules(iso_class, polynom)
-                if have_hyp:
+                factors = R(polynom).factor()
+                exps = classify_factors(factors)
+                coeffs = get_abc(factors, exps)
+                guess = our_jacobi_rules(iso_class, polynom, slope, q, factors, exps, coeffs)
+                if have_hyp and guess == True:
                     jacobians.append(polynom)
-                
+                elif have_hyp and guess == False:
+                    false_positives.append(polynom)
+                    
+                    false_positives_data[q][exps, slope].append((polynom, coeffs))
                 elif not have_hyp and guess==True:
                     new_obstructions.append(polynom)
-                    factors = R(polynom).factor()
 
-                    exps = classify_factors(factors)
-                    coeffs = get_abc(factors, exps)
                     new_obstr_data[q][exps, slope].append((polynom, coeffs))
                 
                 
@@ -108,17 +127,29 @@ def sort_data(data):
                     known_obstructions.append(polynom)
     
     # return new_obstructions, known_obstructions, jacobians
-    return new_obstr_data
+    print(f"Ratio false positive: {len(false_positives)/len(jacobians)}")
+    print(f"Ratio detected negatives: {len(known_obstructions)/len(new_obstructions)}")
+    return new_obstr_data, false_positives
 
 
 def write_new_obstructions_data(data):
-    for q, D in data.items():
+    for q, D in data[0].items():
         for (exps, slopes), polys in D.items():
             
             filename = f"temp/new_obs_{q}_{exps}_{slopes}.txt"
             with open(filename, "w") as F:
                 for poly in polys:
                     _ = F.write(", ".join(str(c) for c in poly) + "\n")
+
+def write_false_positives(data):
+    for q, D in data[1].items():
+        for (exps, slopes), polys in D.items():
+            
+            filename = f"temp/false_pos_{q}_{exps}_{slopes}.txt"
+            with open(filename, "w") as F:
+                for poly in polys:
+                    _ = F.write(", ".join(str(c) for c in poly) + "\n")
+    
                     
 
 
