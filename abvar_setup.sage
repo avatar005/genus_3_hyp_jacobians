@@ -8,21 +8,41 @@ slope_types = {('0A', '0B', '0C', '1A', '1B', '1C'): 0,
                ('0A', '0B', '1/2A', '1/2B', '1A', '1B'): 3,
                ('1/3A', '1/3B', '1/3C', '2/3A', '2/3B', '2/3C'): 1}
 
-def get_data(field = None):
+def prefetch_polys():
+    data = defaultdict(list)
+    primes = [2,3,4,5,7,8,9,11,13,16,17,19,23,25]
+    for field in primes:
+        for rec in db.av_fq_isog.search({"q":field}, ["label", "poly"]):
+            data[rec["label"]] = rec["poly"]
+        print(field)
+    return data
+
+def get_data(field = None, prefetch=None):
+    if not prefetch:
+        prefetch = prefetch_polys()
     R = PolynomialRing(ZZ, 'x')
     data = defaultdict(lambda: defaultdict(list))
+    
+    # set up keys for database querry
     fetch_keys = {"g":3}
     if field:
         fetch_keys["q"] = field
-    for rec in db.av_fq_isog.search(fetch_keys, ["label", "q", "hyp_count", "poly", "slopes"]):
+
+    # fetch data
+    for rec in db.av_fq_isog.search(fetch_keys, ["label", "q", "hyp_count", "poly", "slopes", "simple_factors"]):
         q = rec["q"]
         slopes = tuple(sorted(rec["slopes"]))
         have_hyp = (rec["hyp_count"] > 0)
         poly = R(rec["poly"])
-        factors = poly.factor()
-        exps = classify_factors(factors)
+        factors = rec["simple_factors"]
+        # print(factors)
+        for i in range(len(factors)):
+            # factors[i] = db.av_fq_isog.lookup(factors[i][:-1], "poly")
+            factors[i] = prefetch[factors[i][:-1]]
+        # print(factors)
+        exps = tuple([len(factors[i]) - 1 for i in range(len(factors))])
         coeffs = get_abc(factors, exps)
-        data[q][exps, slope_types[slopes], have_hyp].append((rec["poly"], coeffs))
+        data[q][exps, slope_types[slopes], have_hyp].append((rec["poly"], coeffs, rec["label"]))
     return data
 
 def write_data(data):
@@ -34,7 +54,7 @@ def write_data(data):
                 for poly in polys:
                     # _ = F.write(", ".join(str(c) for c in poly) + "\n")
                     remainders = [r%q for r in poly[1]]
-                    F.write(f"{poly[1]}, {remainders} \n")
+                    F.write(f"{poly[1]}, {remainders}, {poly[2]} \n")
 
 
 def our_jacobi_rules(iso_class, poly, slopes, q, factors, exps, coeffs):
@@ -45,54 +65,48 @@ def our_jacobi_rules(iso_class, poly, slopes, q, factors, exps, coeffs):
     # non-jacobians are of the form x^6 + pqx^3 + q^3 or x^6 + pqx^3 + q^3
     rule1 = len(factors) == 1 and (slopes == 4) and (coeffs[0] == 0) and (coeffs[1] == 0) and ((coeffs[2] == -p*q) or (coeffs[2] == p*q))
     
-    # if slope type 4 and characteristic is even and variety splits as quadratic and quartic
-    rule2 = (slopes == 4) and (q % 2 == 0) and (exps == (2, 4))
-    
-    if iso_class.has_jacobian == -1 or rule1 or rule2:
+    # if slope type 4 and characteristic is two
+    rule2 = (slopes == 4) and (q % 2 == 0)
+
+    # if slope type 3 and characteristic 2 and simple
+    rule3 = (slopes == 3) and len(factors) == 1 and q%2 == 0 and coeffs[0]%2 == 1
+
+
+    if iso_class.has_jacobian == -1 or rule1 or rule2 or rule3:
         return False
     return True
 
-def classify_factors(factors):
-    fs = []
-    for (fac, exp) in factors:
-        if fac.degree() == 1:
-            for _ in range(exp//2):
-                fs.append(2)
-        else:
-            for _ in range(exp):
-                fs.append(fac.degree()) 
-    fs.sort()
-    return(tuple(fs))
+# def classify_factors(factors):
+#     fs = []
+#     for (fac, exp) in factors:
+#         if fac.degree() == 1:
+#             for _ in range(exp//2):
+#                 fs.append(2)
+#         else:
+#             for _ in range(exp):
+#                 fs.append(fac.degree()) 
+#     fs.sort()
+#     return(tuple(fs))
 
 def get_abc(factors, classification):
-    factors_fixed = []
-    for (fac, exp) in factors:
-        if fac.degree() == 1:
-            for i in range(exp//2):
-                factors_fixed.append((fac*fac, 2))
-        else:
-            for i in range(exp):
-                factors_fixed.append((fac, fac.degree()))
-    factors_fixed.sort(key=lambda x: x[1])
+    factors.sort(key=lambda x: len(x))
     
     if classification == (6, ):
-        a = factors_fixed[0][0][1]
-        b = factors_fixed[0][0][2]
-        c = factors_fixed[0][0][3]
+        a = factors[0][1]
+        b = factors[0][2]
+        c = factors[0][3]
         
     elif classification == (2, 4):
-        a = factors_fixed[0][0][1]
-        b = factors_fixed[1][0][1]
-        c = factors_fixed[1][0][2]
+        a = factors[0][1]
+        b = factors[1][1]
+        c = factors[1][2]
 
     elif classification == (2, 2, 2):
-        a = factors_fixed[0][0][1]
-        b = factors_fixed[1][0][1]
-        c = factors_fixed[2][0][1]
-
+        a = factors[0][1]
+        b = factors[1][1]
+        c = factors[2][1]
     
     return (a, b, c)
-    
 
 def sort_data(data):
     R = PolynomialRing(ZZ, 'x')

@@ -4,7 +4,7 @@ set -euo pipefail
 # Enable nullglob so that the loop skips if no files match
 shopt -s nullglob
 
-for file in data_*.txt; do
+for file in *.txt; do
   # Strip the .txt extension to work on the basename
   name="${file%.txt}"
 
