@@ -143,7 +143,7 @@ def sort_data(data):
     
     # return new_obstructions, known_obstructions, jacobians
     print(f"Ratio false positive: {len(false_positives)/len(jacobians)}")
-    print(f"Ratio detected negatives: {len(known_obstructions)/len(new_obstructions)}")
+    print(f"Percent detected negatives: {(len(known_obstructions)/len(new_obstructions))/(len(known_obstructions)/len(new_obstructions) + 1)}")
     # print(false_positives_data)
     print([[(key, len(false_positives_data[f][key])) for key in false_positives_data[f]] for f in false_positives_data])
     return new_obstr_data, false_positives_data
