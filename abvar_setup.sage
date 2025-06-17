@@ -1,6 +1,7 @@
 from lmf import db
 from sage.all import PolynomialRing, ZZ
 from collections import defaultdict
+import itertools
 
 slope_types = {('0A', '0B', '0C', '1A', '1B', '1C'): 0,
                ('1/2A', '1/2B', '1/2C', '1/2D', '1/2E', '1/2F'): 4,
@@ -58,7 +59,7 @@ def write_data(data):
                 for poly in polys:
                     # _ = F.write(", ".join(str(c) for c in poly) + "\n")
                     remainders = [r%modulo for r in poly[1]]
-                    F.write(f"{poly[1]}, {remainders}, {poly[2]} \n")
+                    F.write(f"{poly[1]}, {poly[0]}, {poly[2]} \n")
 
 def _in(arr, search, key=lambda x:x):
     for entry in arr:
@@ -78,38 +79,81 @@ def pattern_keys():
         for j in range(5):
             yield (i, j, True)
 
-def mod_rule_check(data, data_sorted):
-    for mod in range(2, 20):
-        print(mod)
-        for pattern in all_coeff_patterns(mod):
-            for (exps, slopes, have_hyp) in pattern_keys():
-                flag_no = {}
-                for q in primes:
-                    flag_yes = True
+def n_tuple(length, lower, upper):
+    tup = [range(lower, upper + 1) for i in range(length - 1)]
+    tup.append(range(lower*4, upper*4))
+    return itertools.product(*tup)
+
+def evaluate(coeffs, input):
+    a, b, c, d, e, f, g = coeffs
+    x1, x2, x3 = input
+    return x1**2 * a + x2**2 * b + x3**2 * c + a*b*d + b*c*e + c*a*f + g
+
+def poly_rule_check(data, data_sorted):
+    # for mod in range(2, 20):
+    #     print(mod)
+    for pattern in n_tuple(4, -1, 4):
+        print(pattern)
+        for (exps, slopes, have_hyp) in pattern_keys():
+            flag_no = {}
+            for q in primes:
+                flag_yes = True
+                # if pattern doesn't appear in data True, flag_yes = True
+                for poly in data[q][(exps, slopes, have_hyp)]:
+                    # coeffs = tuple((c % mod for c in poly[1]))
+                    coeffs = poly[1]
+                    if 0 == evaluate(pattern, coeffs):
+                        flag_yes = False
+                        break
+                # if pattern does appear in data False, record an entry in flag_no
+                if flag_yes:
+                    if not (exps, slopes, False) in data[q]:
+                        continue
+                    for poly in data_sorted[q][(exps, slopes, False)]:
+                        # coeffs = tuple((c % mod for c in poly[0]))
+                        coeffs = poly[0]
+                        if 0 == evaluate(pattern, coeffs):
+                            print(pattern, coeffs)
+                            if q in flag_no:
+                                flag_no[q] += 1
+                            else:
+                                flag_no[q] = 1
+                            # flag_no[q] = len(data_sorted[q][(exps, slopes)])
+                            
+            if len(flag_no) >= 1 and max(flag_no.values()) >= 1:
+                print(pattern, (exps, slopes, have_hyp), flag_no)
+
+def poly_rule_check_optimized(data, data_sorted):
+    # for mod in range(2, 20):
+    #     print(mod)
+    p = 0
+    for pattern in n_tuple(7, -1, 4):
+        if pattern[1] != p:
+            p = pattern[1]
+            print(pattern)
+        for (exps, slopes, have_hyp) in pattern_keys():
+            flag_no = {}
+            for q in primes:
+                for poly in data_sorted[q][(exps, slopes, False)]:
+                    # coeffs = tuple((c % mod for c in poly[0]))
+                    coeffs = poly[0]
+                    if 0 == evaluate(pattern, coeffs):
+                        # print(pattern, coeffs)
+                        if q in flag_no:
+                            flag_no[q] += 1
+                        else:
+                            flag_no[q] = 1
+                if q in flag_no:
                     # if pattern doesn't appear in data True, flag_yes = True
                     for poly in data[q][(exps, slopes, have_hyp)]:
                         # coeffs = tuple((c % mod for c in poly[1]))
-                        coeffs = tuple((poly[0][i+1] % mod for i in range(3)))
-                        if coeffs == pattern:
-                            flag_yes = False
+                        coeffs = poly[1]
+                        if 0 == evaluate(pattern, coeffs):
+                            del flag_no[q]
                             break
-                    # if pattern does appear in data False, record an entry in flag_no
-                    if flag_yes:
-                        if not (exps, slopes, False) in data[q]:
-                            continue
-                        for poly in data_sorted[q][(exps, slopes)]:
-                            # coeffs = tuple((c % mod for c in poly[0]))
-                            coeffs = tuple((poly[1][i+1] % mod for i in range(3)))
-                            if coeffs == pattern:
-                                flag_no[q] = len(data_sorted[q][(exps, slopes)])
-                                break
-                        # for poly in data[q][(exps, slopes, False)]:
-                        #     coeffs = tuple((c % mod for c in poly[1]))
-                        #     if coeffs == pattern:
-                        #         flag_no[q] = True
-                        #         break
-                if len(flag_no) >= 1 and max(flag_no.values()) >= 1:
-                    print(mod, pattern, (exps, slopes, have_hyp), flag_no)
+                            
+            if len(flag_no) >= 1 and max(flag_no.values()) >= 3:
+                print(pattern, (exps, slopes, have_hyp), flag_no)
 
 def discriminant_check(data):
     """
@@ -119,7 +163,7 @@ def discriminant_check(data):
     exp_pattern = (2,2,2)
     disc_results = {}
     obstructed_discriminants = []        
-    for disc in range(-100, 100):
+    for disc in range(-100, 0):
         disc_results[(disc, True)] = []
         disc_results[(disc, False)] = []
         for slopes in range(5):
@@ -135,13 +179,13 @@ def discriminant_check(data):
         
         if disc_results[(disc, True)] == [] and disc_results[(disc, False)] != []:
             obstructed_discriminants.append(disc)
-            print("discriminant {disc} with", len(disc_results[(disc, False)]))
+            print(f"discriminant {disc} with # {len(disc_results[(disc, False)])}")
 
     print(obstructed_discriminants)
 
 
 def patterns_mod():
-    for p in [2,3]:
+    for p in [2,3,5]:
         for mod in range(p):
             for coeff in ['a', 'b', 'c']:
                 yield(p, mod, coeff)
@@ -155,7 +199,7 @@ def prime_divisors_check(data):
             for p, mod, coeff in patterns_mod():
                 for have_hyp in {True, False}:
                     for slopes in slope_types:
-                        divisor_results[(p, mod, exp, have_hyp, coeff)] = []
+                        divisor_results[(p, mod, exp, have_hyp, slopes)] = []
                         print((p, mod, exp, have_hyp, coeff))
                         for polyn in data[q][(exp, slopes, have_hyp)]:
                             a, b, c = polyn[1][0], polyn[1][1], polyn[1][2]
@@ -164,27 +208,27 @@ def prime_divisors_check(data):
                                     prime_div = prime_divisors(a)
                                     check = all([div%p == mod for div in prime_div])
                                     if check:
-                                        divisor_results[(p, mod, exp, have_hyp, coeff)].append(polyn)
+                                        divisor_results[(p, mod, exp, have_hyp, slopes)].append(polyn)
                                 elif mod == 0:
-                                    divisor_results[(p, mod, exp, have_hyp, coeff)].append(polyn)
+                                    divisor_results[(p, mod, exp, have_hyp, slopes)].append(polyn)
                             if coeff == 'b':
                                 if b != 0:
                                     prime_div = prime_divisors(b)
                                     check = all([div%p == mod for div in prime_div])
                                     if check:
-                                        divisor_results[(p, mod, exp, have_hyp, coeff)].append(polyn)
+                                        divisor_results[(p, mod, exp, have_hyp, slopes)].append(polyn)
                                 elif mod == 0:
-                                    divisor_results[(p, mod, exp, have_hyp, coeff)].append(polyn)
+                                    divisor_results[(p, mod, exp, have_hyp, slopes)].append(polyn)
                             if coeff == 'c':
                                 if c != 0:
                                     prime_div = prime_divisors(c)
                                     check = all([div%p == mod for div in prime_div])
                                     if check:
-                                        divisor_results[(p, mod, exp, have_hyp, coeff)].append(polyn)
+                                        divisor_results[(p, mod, exp, have_hyp, slopes)].append(polyn)
                                 elif mod == 0:
-                                    divisor_results[(p, mod, exp, have_hyp, coeff)].append(polyn)
-                if divisor_results[(p, mod, exp, True, coeff)] == [] and divisor_results[(p, mod, exp, False, coeff)] != []:
-                    obstructed_div_mod_factoring.append((p, mod, exp, coeff))
+                                    divisor_results[(p, mod, exp, have_hyp, slopes)].append(polyn)
+                if divisor_results[(p, mod, exp, True, slopes)] == [] and divisor_results[(p, mod, exp, False, slopes)] != []:
+                    obstructed_div_mod_factoring.append((p, mod, exp, slopes))
 
     print('done')
     print(obstructed_div_mod_factoring)
@@ -217,6 +261,33 @@ def distance_check(data):
     print(obstructed_dist)
     # print(dist_results[0, False], dist_results[0,True])
 
+def parity_check_2(data):
+    exp_pattern = (2,4)
+    parity_results = {}
+    obstructed_polys = []
+    slopes = 2
+    for q in {2,4,8,16}:
+        for hyp in {True, False}:
+            for div in range(2,4):
+                for mod1 in range(div):
+                    for mod2 in range(div):
+                        for mod3 in range(div):
+                            parity_results[(div, mod1, mod2, mod3, hyp)] = []
+                            for polyn in data[q][(exp_pattern, slopes, hyp)]:
+                                coeffs = polyn[1]
+                                if coeffs[0]%div == mod1 and coeffs[1]%div == mod2 and coeffs[2]%div == mod3:
+                                    parity_results[(div, mod1, mod2, mod3, hyp)].append(polyn)
+    for div in range(2,4):
+        for mod1 in range(div):
+            for mod2 in range(div):
+                for mod3 in range(div):
+                    if parity_results[(div, mod1, mod2, mod3, True)]==[] and parity_results[(div, mod1, mod2, mod3, False)]!=[]:
+                        print((div, mod1, mod2, mod3), len(parity_results[(div, mod1, mod2, mod3, False)]))
+    # print(parity_results[True], "break", parity_results[False])
+    print('done')
+
+
+
 
 def equality_check(data):
     #this is for p-rank zero, irreducible
@@ -244,79 +315,69 @@ def our_jacobi_rules(iso_class, poly, slopes, q, exps, coeffs):
     p = trial_division(q)
     R = PolynomialRing(ZZ, 'x')
 
-    coeffs2 = tuple([c % 2 for c in coeffs])
     coeffs4 = tuple([c % 4 for c in coeffs])
-    a,b,c = coeffs
+    coeffs2 = tuple([c % 2 for c in coeffs])
+    poly2 = tuple([c % 2 for c in poly[1:4]])
     sorted_coeffs = sorted(coeffs)
+    a,b,c = sorted_coeffs
     
-    # if slope type 4 and simple
-    rule1 = len(exps) == 1 and (slopes == 4) and (coeffs[0] == 0) and (coeffs[1] == 0) and ((coeffs[2] == -p*q) or (coeffs[2] == p*q))
-    
+    rules = {}
+
+    # Costa Theorem 2.8
+    rules['Costa'] = poly2[1:] == (0, 1) and p%2 != 0
+
+    # Case 1 in Theorem 1
+    rules['Thm 1.1'] = poly2 == (0, 0, 1) and slopes != 0 and p == 2
+
+    # Case 2 of Theorem 1
+    rules['Thm 1.2'] = poly2 == (0, 1, 1) and p == 2
+
+    # Case 3 in Theorem 1
+    rules['Thm 1.3'] = poly2 == (1, 0, 1) and slopes != 3 and p == 2
+
+    # Case 4 in Theorem 1
+    rules['Thm 1.4'] = poly2 == (1, 1, 1) and (not slopes in (0, 2)) and p == 2
+
+    # Case 5 in Theorem 1
+    rules['Thm 1.5'] = (slopes == 3) and p == 2 and poly2 == (1, 1, 0)
+
+
+    # STRANGE AND WORTH EXPLORING FURTHER 
     # if slope type 4 and characteristic is two
-    rule2 = (slopes == 4) and (q % 2 == 0)
-
-    # if slope type 3 and characteristic 2 and simple
-    rule3 = (slopes == 3) and len(exps) == 1 and q%2 == 0 and coeffs[0]%2 == 1
-
-    # if slope not type 0 and simple and coeffs are even even odd
-    rule4 = coeffs2 == (0, 0, 1) and slopes != 0 and len(exps) == 1
-
-    # if slope type 0 and simple and slopes are even even odd and characteristic is odd
-    rule4_1 = coeffs2 == (0, 0, 1) and slopes == 0 and len(exps) == 1 and p%2 != 0
-
-    # simple and coeffs follow odd even odd pattern
-    rule5 = coeffs2 == (1, 0, 1) and len(exps) == 1
-    
-    # 2-4 splitting pattern and coeffs follow odd-even-odd and not ordinary
-    rule6 = coeffs2 == (1, 0, 1) and len(exps) == 2 and slopes != 0
-
-    # odd even odd pattern for 2-4 splitting, ordinary, and odd characteristic
-    rule7 = coeffs2 == (1, 0, 1) and len(exps) == 2 and slopes == 0 and p != 2
-
-    # split into quadratics and coefficients follow odd odd odd pattern and characteristic not 2
-    rule8 = len(exps) == 3 and coeffs2 == (1, 1, 1) and p != 2
+    rules[1] = (slopes == 4) and (q % 2 == 0)
 
     # 2x4 splitting, slope type 2, prime field != 2, (1, 0, 2) mod 4 or (3, 0, 2) mod 4 pattern
-    rule9 = len(exps) == 2 and (coeffs4 == (1, 0, 2) or coeffs4 == (3, 0, 2)) and p == q and p != 2 and slopes == 2
+    rules[2] = len(exps) == 2 and (coeffs4 == (1, 0, 2) or coeffs4 == (3, 0, 2)) and p == q and p != 2 and slopes == 2
+    # STRANGE AND WORTH EXPLORING FURTHER ^
 
-    # simple and slope type 0 and coefficients are even, odd, odd and characteristic 2
-    rule10 = len(exps) == 1 and slopes == 0 and coeffs2 == (0, 1, 1) and p == 2
-
-    # 2x4 splitting and slope type 3 and coefficients are even, odd, odd and characteristic 2
-    rule11 = len(exps) == 2 and slopes == 3 and coeffs2 == (0, 1, 1) and p == 2
 
     # 2x2x2 splitting of the form (x^2 - tx + q)^3, conditions on discriminant t^2 - 4q
-    rule12 = False
+    rules[3] = False
     obstructed_discriminants = [-99, -91, -83, -75, -67, -59, -51, -43, -39, -35, -27, -23, -20, -19, -15, -12, -11, -8, -7, -4, -3, 0]
     if len(exps) == 3:
-        if coeffs[0]==coeffs[1]==coeffs[2] and (coeffs[0]**2 - 4*q in obstructed_discriminants):
-            rule12 = True
+        if a==b==c and (a**2 - 4*q in obstructed_discriminants):
+            rules[3] = True
     
     # 2x2x2 splitting with parameters a >= b >= c, checks that a - b = b - c = 1
-    rule13 = False
+    rules[4] = False
     if len(exps) == 3:
-        rule13 = sorted_coeffs[2] - sorted_coeffs[1] == 1 and sorted_coeffs[1] - sorted_coeffs[0] == 1
+        rules[4] = c - b == 1 and b - a == 1
 
     
     # 2x2x2 splitting, if two are equal and third is not (so abs(a - b) + abs(b - c) + abs(a - c) == 2)
-    rule14 = len(exps) == 3 and abs(coeffs[0] - coeffs[1]) + abs(coeffs[1] - coeffs[2]) + abs(coeffs[0] - coeffs[2]) == 2
+    rules[5] = len(exps) == 3 and abs(a - b) + abs(b - c) + abs(a - c) == 2
 
     # 2x2x2 splitting, p-rank=0, for q=2,3,4,9 if a^2 = b^2 = c^2 and p | a^2
-    rule15 = False
+    rules[6] = False
     if len(exps) == 3 and slopes in {1,4} and q in {2,3,4,9}:
-        rule15 = coeffs[0]**2 == coeffs[1]**2 and coeffs[1]**2 == coeffs[2]**2 and coeffs[1]%p == 0
+        rules[6] = a**2 == b**2 and b**2 == c**2 and b % p == 0
 
-    '''
-    # 2x4 with slope type 4, if first two coefficients are 0 and last coefficient is -2q with q > 3 and squarefree
-    rule16 = len(exps) == 2 and q > 3 and q == p and slopes == 4 and sorted_coeffs == [-2*q, 0, 0]
-    '''
+    # rules[7] = abs(poly[1]) > q + 1
 
     # if iso_class.has_jacobian == -1 or rule1 or rule2 or rule3:
-    if rule1 or rule2 or rule3 or rule4 or rule5 or rule6 or rule7 or rule8 or rule4_1 or rule9 or rule10 or rule11 or rule12 or rule13 or rule14 or rule15 or rule16:
+    if True in rules.values():
         return False
     return True
-
-
 
 
 def get_abc(factors, classification):
@@ -354,20 +415,19 @@ def sort_data(data):
                 # iso_class = IsogenyClass(poly=polynom)
                 iso_class = None
                 coeffs = polynom_[1]
-                coeffs_mod_2 = tuple([c % modulo for c in coeffs])
                 guess = our_jacobi_rules(iso_class, polynom, slope, q, exps, coeffs)
                 if have_hyp and guess == True:
                     jacobians.append(polynom)
                 elif have_hyp and guess == False:
                     false_positives.append(polynom)
                     
-                    false_positives_data[q][exps, slope].append((coeffs, polynom))
+                    false_positives_data[q][exps, slope].append((coeffs, polynom, polynom_[2]))
                 elif not have_hyp and guess==True:
                     new_obstructions.append(polynom)
                     # iso_class = IsogenyClass(poly=polynom)
                     # if iso_class.has_jacobian == 0:
                     #     new_obstr_data[q][exps, slope].append((coeffs, polynom))
-                    new_obstr_data[q][exps, slope].append((coeffs, polynom))
+                    new_obstr_data[q][exps, slope].append((coeffs, polynom, polynom_[2]))
                 
                 
                 else:
@@ -380,6 +440,23 @@ def sort_data(data):
     print([[(key, len(false_positives_data[f][key]), f) for key in false_positives_data[f]] for f in false_positives_data])
     return new_obstr_data, false_positives_data
 
+
+def known_jacobi(presorted_data):
+    count = 0
+    for q, D in presorted_data.items():
+        print(q)
+        for (exps, slope), polys in D.items():
+            for i in range(len(polys)):
+                try:
+                    iso_class = IsogenyClass(label = polys[i][2])
+                    if iso_class.has_jacobian == -1:
+                        del presorted_data[q][exps, slope][i]
+                        count += 1
+                except IndexError:
+                    break
+        print(q, count)
+    print(count)
+    return presorted_data
 
 def write_new_obstructions_data(data):
     for q, D in data[0].items():
