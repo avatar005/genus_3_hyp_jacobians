@@ -6,6 +6,8 @@ import pickle
 import os
 from functools import partial
 from termcolor import cprint
+from pprint import pprint
+from itertools import product
 
 slope_types = {('0A', '0B', '0C', '1A', '1B', '1C'): 0,
                ('1/2A', '1/2B', '1/2C', '1/2D', '1/2E', '1/2F'): 4,
@@ -68,7 +70,7 @@ def write_data(data):
                 filename = f"new/data_{have_hyp}_{q}_{factoring}_{slopes}.txt"
                 with open(filename, "w") as F:
                     for poly in polys:
-                        F.write(f"{poly[1]}, {poly[0]}, {poly[2]} \n")
+                        F.write(f"{poly[1]}, {poly[0]}, {poly[2]}, {poly[1][0]^2 - poly[1][1]^2  + poly[1][2]} \n")
 
 def all_coeff_patterns(mod):
     for i in range(mod):
@@ -83,80 +85,150 @@ def pattern_keys():
             yield (i, j, True)
 
 def n_tuple(length, lower, upper):
-    tup = [range(lower, upper + 1) for i in range(length - 1)]
-    tup.append(range(lower*4, upper*4))
+    tup = [range(lower, upper + 1) for i in range(length)]
     return itertools.product(*tup)
 
 def evaluate(coeffs, input):
-    a, b, c, d, e, f, g = coeffs
+    dic = {0:0, 1:1, 2:-1, 3:4, 4:-4}
+    a, b, c, d, e, f= coeffs
+    a = dic[a]
+    b = dic[b]
+    c = dic[c]
+    d = dic[d]
+    e = dic[e]
+    f = dic[f]
     x1, x2, x3 = input
-    return x1**2 * a + x2**2 * b + x3**2 * c + a*b*d + b*c*e + c*a*f + g
+    return x1**2 * a + x2**2 * b + x3**2 * c + d*x1 + e*x2 + f*x3
 
-def poly_rule_check(data, data_sorted):
+
+def poly_rule_check(data):
     # for mod in range(2, 20):
     #     print(mod)
-    for pattern in n_tuple(4, -1, 4):
-        print(pattern)
-        for (exps, slopes, have_hyp) in pattern_keys():
-            flag_no = {}
-            for q in primes:
-                flag_yes = True
-                # if pattern doesn't appear in data True, flag_yes = True
-                for poly in data[q][(exps, slopes, have_hyp)]:
-                    # coeffs = tuple((c % mod for c in poly[1]))
-                    coeffs = poly[1]
-                    if 0 == evaluate(pattern, coeffs):
-                        flag_yes = False
-                        break
-                # if pattern does appear in data False, record an entry in flag_no
-                if flag_yes:
-                    if not (exps, slopes, False) in data[q]:
-                        continue
-                    for poly in data_sorted[q][(exps, slopes, False)]:
-                        # coeffs = tuple((c % mod for c in poly[0]))
-                        coeffs = poly[0]
-                        if 0 == evaluate(pattern, coeffs):
-                            print(pattern, coeffs)
-                            if q in flag_no:
-                                flag_no[q] += 1
-                            else:
-                                flag_no[q] = 1
-                            # flag_no[q] = len(data_sorted[q][(exps, slopes)])
-                            
-            if len(flag_no) >= 1 and max(flag_no.values()) >= 1:
-                print(pattern, (exps, slopes, have_hyp), flag_no)
-
-def poly_rule_check_optimized(data, data_sorted):
-    # for mod in range(2, 20):
-    #     print(mod)
-    p = 0
-    for pattern in n_tuple(7, -1, 4):
-        if pattern[1] != p:
-            p = pattern[1]
+    p = 2
+    for pattern in n_tuple(6, 0, 2):
+        if pattern[2] != p:
             print(pattern)
-        for (exps, slopes, have_hyp) in pattern_keys():
-            flag_no = {}
-            for q in primes:
-                for poly in data_sorted[(exps, slopes)][q][False]:
-                    # coeffs = tuple((c % mod for c in poly[0]))
-                    coeffs = poly[0]
-                    if 0 == evaluate(pattern, coeffs):
-                        # print(pattern, coeffs)
-                        if q in flag_no:
-                            flag_no[q] += 1
-                        else:
-                            flag_no[q] = 1
-                if q in flag_no:
-                    # if pattern doesn't appear in data True, flag_yes = True
-                    for poly in data[q][(exps, slopes, have_hyp)]:
-                        # coeffs = tuple((c % mod for c in poly[1]))
-                        coeffs = poly[1]
-                        if 0 == evaluate(pattern, coeffs):
-                            del flag_no[q]
-                            break
-                            
-            if len(flag_no) >= 1 and max(flag_no.values()) >= 3:
-                print(pattern, (exps, slopes, have_hyp), flag_no)
+            p = pattern[1]
+        for (exps, slopes), D1 in data['norule'].items():
+            flag_no = defaultdict(lambda: defaultdict(int))
+            for q, polys in D1.items():
+                for poly in polys:
+                    coeffs = poly[1]
+                    if flag_no[q][evaluate(pattern, coeffs)] == 0:
+                        flag_no[q]['remaining'] += 1
+                    flag_no[q][evaluate(pattern, coeffs)] += 1
+                for key in flag_no[q]:
+                    if flag_no[q][key] < 4 and key != 'remaining':
+                        flag_no[q][key] = 0
+                        flag_no[q]['remaining'] -= 1
+                for poly in data[True][(exps, slopes)][q]:
+                    coeffs = poly[1]
+                    if flag_no[q][evaluate(pattern, coeffs)] != 0:
+                        flag_no[q][evaluate(pattern, coeffs)] = 0
+                        flag_no[q]['remaining'] -= 1
+                    if flag_no[q]['remaining'] == 0:
+                        break
+            count = [0,0]
+            for q in flag_no.keys():
+                if flag_no[q]['remaining'] > 0:
+                    count[q % 2] += 1
+            if count[0] >= 3:
+                print(pattern, (exps, slopes), end=': ')
+                for q in [2, 4, 8, 16]:
+                    for c in flag_no[q]:
+                        if flag_no[q][c] > 0 and c != 'remaining':
+                            print(q, c, flag_no[q][c], end='; ')
+                print()
+            if count[1] > 4:
+                print(pattern, (exps, slopes), end=': ')
+                for q in [3, 5, 7, 9, 11, 13, 17, 19, 23, 25]:
+                    for c in flag_no[q]:
+                        if flag_no[q][c] > 0 and c != 'remaining':
+                            print(q, c, flag_no[q][c], end='; ')
+                print()
+
+EXP_PATTERNS = {(6,)}
+SLOPES      = {0,1,2,3,4}
+ALL_RULES   = [
+    (eps1,eps2,eps3,eps4, del1,del2,del3)
+    for eps1,eps2,eps3,eps4 in product((1,2,3), repeat=4)
+    for del1,del2,del3 in product((-1,0,1), repeat=3)
+]
+
+def rule_check(data):
+    # print(f"R = {r}")
+    alive = set(ALL_RULES)
+    obs   = {r: [] for r in ALL_RULES}
+    unobs = {r: [] for r in ALL_RULES}
+
+    for q in set(primes)-{2,4,8,16}:
+        print(q)
+        p = char[q]
+        for slope in SLOPES:
+            for exp_pat in EXP_PATTERNS:
+                for have_hyp in (True, False):
+                    for poly in data[have_hyp][(exp_pat, slope)][q]:
+                        a,b,c = poly[1]
+                        if c < 0:
+                            # div = Integer(c).prime_divisors()
+                            # div_ = [p for p in div if p < abs(c)]
+                            # if all([p%12==1 for p in div_]) and b^3+c==-q^2:
+                            if is_prime(abs(c)):
+                                a_p = {e: a**e for e in (1,2,3)}
+                                b_p = {e: b**e for e in (1,2,3)}
+                                c_p = {e: c**e for e in (1,2,3)}
+                                q_p = {e: q**e for e in (1,2,3)}
+                                for rule in list(alive):
+                                    e1,e2,e3,e4, d1,d2,d3 = rule
+                                    if d1*a_p[e1] + d2*b_p[e2] + d3*c_p[e3] == q_p[e4]:
+                                        if have_hyp:
+                                            unobs[rule].append((a,b,c))
+                                            alive.discard(rule)
+                                        else:
+                                            obs[rule].append((a,b,c))
+    results = [
+        (rule, len(obs[rule]))
+        for rule in alive
+        if obs[rule] and not unobs[rule]
+    ]
+    return results
+
+
+def power_rules(results, data):
+    for q in {2,4,8,16}:
+        print(q)
+        for slope in SLOPES:
+            for exp_pat in EXP_PATTERNS:
+                for have_hyp in (True, False):
+                    for poly in data[have_hyp][(exp_pat, slope)][q]:
+                        a,b,c = poly[1]
+                        if c<0 and is_prime(abs(c)):
+                            rules_good = []
+                            for e1,e2,e3,e4,d1,d2,d3 in all_rules_odd:
+                                if d1*a^e1+d2*b^e2+d3*c^e3 == q^e4:
+                                    # rules_good.append(rules[(e1,e2,e3,e4,d1,d2,d3)])
+                                    rules_good.append((e1,e2,e3,e4,d1,d2,d3))
+                            if rules_good:
+                                print(f'poly: {(a,b,c)}, rules: {rules_good}')
+
+def point_count(data):
+    obstructed, unobstructed = {}, {}
+    for q, D in data.items():
+        obstructed[q], unobstructed[q] = {"neg": [], "div": [], "over": []}, []
+        if q<=25:
+            for _, polys in D.items():
+                for i in range(len(polys)):
+                    iso_class = IsogenyClass(label=polys[i][2])
+                    obs, type_, params = _nojac_pointcounts(iso_class)
+                    if obs:
+                        obstructed[q][type_].append((iso_class, params))
+                        # print(iso_class, "obs")
+                    else:
+                        unobstructed[q].append(iso_class)
+                        # print(iso_class, "unobs")
+            print(q, len(obstructed[q]["neg"]), len(obstructed[q]["div"]), len(unobstructed[q]))
+    return obstructed, unobstructed
+
 
 def discriminant_check(data):
     """
@@ -317,7 +389,12 @@ def our_jacobi_rules(poly, slopes, q, exps, coeffs):
     coeffs4 = tuple([c % 4 for c in coeffs])
     poly2 = tuple([c % 2 for c in poly[1:4]])
     sorted_coeffs = sorted(coeffs)
-    a,b,c = sorted_coeffs
+    if len(exps) == 3:
+        a,b,c = sorted_coeffs
+    else:
+        a, b, c = coeffs
+
+    prime_nums = Primes()
     
     rules = {}
 
@@ -325,7 +402,7 @@ def our_jacobi_rules(poly, slopes, q, exps, coeffs):
     rules['Costa'] = poly2[1:] == (0, 1) and p%2 != 0
 
     # Case 1 in Theorem 1
-    rules['Thm 1.1'] = poly2 == (0, 0, 1) and slopes != 0 and p == 2
+    # rules['Thm 1.1'] = poly2 == (0, 0, 1) and slopes != 0 and p == 2
 
     # Case 2 of Theorem 1
     rules['Thm 1.2'] = poly2 == (0, 1, 1) and p == 2
@@ -334,19 +411,16 @@ def our_jacobi_rules(poly, slopes, q, exps, coeffs):
     rules['Thm 1.3'] = poly2 == (1, 0, 1) and slopes != 3 and p == 2
 
     # Case 4 in Theorem 1
-    rules['Thm 1.4'] = poly2 == (1, 1, 1) and (not slopes in (0, 2)) and p == 2
+    # rules['Thm 1.4'] = poly2 == (1, 1, 1) and (not slopes in (0, 2)) and p == 2
 
     # Case 5 in Theorem 1
     rules['Thm 1.5'] = (slopes == 3) and p == 2 and poly2 == (1, 1, 0)
 
-
-    # STRANGE AND WORTH EXPLORING FURTHER 
-    # if slope type 4 and characteristic is two
-    rules[1] = (slopes == 4) and (q % 2 == 0)
+    # Prop 1
+    rules['Proposition 1'] = (slopes == 4) and (q % 2 == 0)
 
     # 2x4 splitting, slope type 2, prime field != 2, (1, 0, 2) mod 4 or (3, 0, 2) mod 4 pattern
     rules[2] = len(exps) == 2 and (coeffs4 == (1, 0, 2) or coeffs4 == (3, 0, 2)) and p == q and p != 2 and slopes == 2
-    # STRANGE AND WORTH EXPLORING FURTHER ^
 
 
     # 2x2x2 splitting of the form (x^2 - tx + q)^3, conditions on discriminant t^2 - 4q
@@ -370,12 +444,23 @@ def our_jacobi_rules(poly, slopes, q, exps, coeffs):
     if len(exps) == 3 and slopes in {1,4} and q in {2,3,4,9}:
         rules[6] = a**2 == b**2 and b**2 == c**2 and b % p == 0
 
-    # rules[7] = abs(poly[1]) > q + 1
+    forbidden = [(-4, -1, 0), (0, 1, 4), (-4, -3, 0), (0, 3, 4), (-3, -2, 0), (-2, 0, 1), (-1, 0, 2), (0, 2, 3), ]
+    
+    rules[7] = p == q and (sorted_coeffs == (-3, 0, 0) or sorted_coeffs == (0, 0, 3)) and slopes == 2 and exps == (2,2,2) and q % 2 != 0
+    rules[8] = p == q and (sorted_coeffs == (-2, 0, 0) or sorted_coeffs == (0, 0, 2)) and slopes == 2 and exps == (2,2,2) and q % 4 == 3
+    rules[9] = p != q and (abs(poly[1]) <= q**0.5 and poly[1]%2 == 1) and slopes == 2 and exps == (2,2,2) and q % 2 != 0
+    rules[10] = p == q and c in (2*q - 2, 2*q - 3, 2*q + 2, 2*q + 3) and b % 2 == 1 and slopes == 3 and exps == (2, 4)
+    rules[11] = a == 0 and c in (2*q - 3, 2*q + 3) and slopes == 3 and exps == (2, 4) and p == 2
+    rules[12] = a^2 + c^2 + a - c == 6 and slopes == 3 and exps == (2, 2, 2) and p == 2
+    rules[13] = a^2 + b^2 + c^2 == 9 and slopes == 0 and exps == (2,2,2) and p != 2
+    rules[14] = (a, b, c) in forbidden and slopes == 3 and exps == (2,2,2) and p != 2
+    rules[15] = (a, b, c) in [(-2, -2, 0), (0, 2, 2)] and slopes == 3 and exps == (2,2,2) and p != 2 and q % 4 == 1
 
+    rules[16] = len(exps) == 1 and c < 0 and -c in prime_nums and b + c == -q^2
+    rules[17] = len(exps) == 1 and c < 0 and -c in prime_nums and b^3 + c == -q^2
+    
     # if iso_class.has_jacobian == -1 or rule1 or rule2 or rule3:
-    if True in rules.values():
-        return False
-    return True
+    return rules
 
 
 def get_abc(factors, classification):
@@ -414,7 +499,7 @@ def sort_data(data=None):
             for poly in polys:
                 counts[False][(exps, slope)] += 1
                 guess = our_jacobi_rules(poly[0], slope, q, exps, poly[1])
-                if guess:
+                if not (True in guess.values()):
                     counts['undetected'][(exps, slope)] += 1
                     data['undetected'][(exps, slope)][q].append(poly)
     
@@ -423,7 +508,7 @@ def sort_data(data=None):
             for poly in polys:
                 counts[True][(exps, slope)] += 1
                 guess = our_jacobi_rules(poly[0], slope, q, exps, poly[1])
-                if not guess:
+                if True in guess.values():
                     counts['false positives'][(exps, slope)] += 1
                     data['false positives'][(exps, slope)][q].append(poly)
     
@@ -436,10 +521,67 @@ def sort_data(data=None):
 
     pickle_data(data)
 
-    return data
+    # return data
+
+
+def test_new_rule(data=None):
+    if not data:
+        data = get_data()
+    
+    data["norule"].clear()
+    data["false positives"].clear()
+    counts = {"norule": defaultdict(int),
+              False: defaultdict(int),
+              "false positives": defaultdict(int),
+              True: defaultdict(int)}
+    
+    for (exps, slope), D in data["unknown"].items():
+        for q, polys in D.items():
+            for poly in polys:
+                counts[False][(exps, slope)] += 1
+                # test rule !!!!!!!!!!!!!!!!!!!!
+                # evaluates to True if we don't expect a jacobian
+                p = trial_division(q)
+                a, b, c = poly[1]
+                forbidden = [(-4, -1, 0), (0, 1, 4), (-4, -3, 0), (0, 3, 4), (-3, -2, 0), (-2, 0, 1), (-1, 0, 2), (0, 2, 3), ]
+                newrule = [
+                    False
+                ]
+                if not (True in newrule):
+                    counts['norule'][(exps, slope)] += 1
+                    data['norule'][(exps, slope)][q].append(poly)
+    
+    for (exps, slope), D in data[True].items():
+        for q, polys in D.items():
+            for poly in polys:
+                counts[True][(exps, slope)] += 1
+                # test rule !!!!!!!!!!!!!!!!!!!!
+                # evaluates to True if we don't expect a jacobian
+                p = trial_division(q)
+                a, b, c = poly[1]
+                forbidden = [(-4, -1, 0), (0, 1, 4), (-4, -3, 0), (0, 3, 4), (-3, -2, 0), (-2, 0, 1), (-1, 0, 2), (0, 2, 3), ]
+                newrule = [
+                    False
+                ]
+                if True in newrule:
+                    counts['false positives'][(exps, slope)] += 1
+                    data['false positives'][(exps, slope)][q].append(poly)
+    
+    fp = sum(counts['false positives'].values())
+    true = sum(counts[True].values())
+    print(f"Percent false positive: {fp}/{true} = {float(fp/true)}")
+    undetected = sum(counts['norule'].values())
+    false = sum(counts[False].values())
+    print(f"Percent negatives undetected: {undetected}/{false} = {float(undetected/false)}")
+
+    pickle_data(data)
+
+    # return data
+
+
+color = lambda ratio: (255*(ratio)**0.5, 255 - 255*(ratio)**0.5, 0)
 
 def print_statistics(data=None):
-    color = lambda ratio: (255*(ratio)**0.5, 255 - 255*(ratio)**0.5, 0)
     if not data:
         data = get_data()
 
@@ -457,14 +599,33 @@ def print_statistics(data=None):
         cprint(f"\t Percent negatives undetected by our rules: {undetected}/{false} = {float(undetected/false)}", color(undetected/false))
         unknown = counts['unknown'][(exps, slope)]
         cprint(f"\t Percent negatives undetected by our rules + known obstructions: {unknown}/{false} = {float(unknown/false)}", color(unknown/false))
+        norule = counts['norule'][(exps, slope)]
+        # cprint(f"\t Percent negatives undetected by our rules + known obstructions: {norule}/{false} = {float(norule/false)}", color(norule/false))
 
     undetected = sum(counts['undetected'].values())
     false = sum(counts[False].values())
     unknown = sum(counts['unknown'].values())
+    norule = sum(counts['norule'].values())
     print()
     cprint(f"Percent negatives undetected: {undetected}/{false} = {float(undetected/false)}", color(undetected/false))
     cprint(f"Percent negatives undetected: {unknown}/{false} = {float(unknown/false)}", color(unknown/false))
+    # cprint(f"Percent negatives undetected: {norule}/{false} = {float(norule/false)}", color(norule/false))
 
+def print_statistics_by_rule(data=None):
+    if not data:
+        data = get_data()
+    
+    counts = defaultdict(int)
+
+    for (exps, slope), D in data[False].items():
+        for q, polys in D.items():
+            for poly in polys:
+                r = our_jacobi_rules(poly[0], slope, q, exps, poly[1])
+                for rule in r:
+                    if r[rule] == True:
+                        counts[rule] += 1
+    
+    pprint(counts)
 
 def known_jacobi_sort(data=None):
     if not data:
@@ -480,7 +641,7 @@ def known_jacobi_sort(data=None):
                 point_counts_restriction = False
                 q = iso_class.q
                 for n in range(len(iso_class.curve_counts)):
-                    if iso_class.curve_counts[n] > min(2*(q**(n+1) + 1), q**(n+1) + 1 + 2*3*q**((n+1)/2)):
+                    if iso_class.curve_counts[n] > 2*(q**(n+1) + 1):
                         point_counts_restriction = True
                 if iso_class.has_jacobian == 0 and not point_counts_restriction:
                     data["unknown"][(exps, slope)][q].append(poly)
@@ -488,33 +649,5 @@ def known_jacobi_sort(data=None):
                 
     print(count)
     pickle_data(data)
-    return data
-
-
-
-# def write_new_obstructions_data(data):
-#     for q, D in data[0].items():
-#         for (exps, slopes), polys in D.items():
-            
-#             filename = f"temp/data_norule_{q}_{exps}_{slopes}.txt"
-#             with open(filename, "w") as F:
-#                 for poly in polys:
-#                     _ = F.write(", ".join(str(c) for c in poly) + "\n")
-
-# def write_false_positives(data):
-#     for q, D in data[1].items():
-#         for (exps, slopes), polys in D.items():
-            
-#             filename = f"temp/false_pos_{q}_{exps}_{slopes}.txt"
-#             with open(filename, "w") as F:
-#                 for poly in polys:
-#                     _ = F.write(", ".join(str(c) for c in poly) + "\n")
-    
-                    
-# def write_exp_data(data):
-#     write_new_obstructions_data(data)
-#     write_false_positives(data)
-
-
-                
+    # return data
 
