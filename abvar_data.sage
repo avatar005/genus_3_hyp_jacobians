@@ -91,7 +91,7 @@ def all_coeff_patterns(mod):
                 yield (i, j, k)
 
 def restriction(x, y, z, q):
-    return z == 2*trial_division(q)
+    return True
 def x_modification(x_value):
     return x_value
 def y_modification(y_value):
