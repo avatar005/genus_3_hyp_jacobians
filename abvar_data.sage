@@ -7,13 +7,25 @@ import os
 from functools import partial
 from termcolor import cprint
 from pprint import pprint
-from itertools import product
+from itertools import product, chain, combinations
+import matplotlib.pyplot as plt
+import numpy as np
+from mpl_toolkits.mplot3d import Axes3D
+import matplotlib.pyplot as plt
+from matplotlib.widgets import CheckButtons
+
 
 slope_types = {('0A', '0B', '0C', '1A', '1B', '1C'): 0,
                ('1/2A', '1/2B', '1/2C', '1/2D', '1/2E', '1/2F'): 4,
                ('0A', '1/2A', '1/2B', '1/2C', '1/2D', '1A'): 2,
                ('0A', '0B', '1/2A', '1/2B', '1A', '1B'): 3,
                ('1/3A', '1/3B', '1/3C', '2/3A', '2/3B', '2/3C'): 1}
+
+p_rank_dict = {0:3,
+               4:0,
+               2:1,
+               3:2,
+               1:0}
 
 modulo = 4
 
@@ -39,7 +51,7 @@ def get_data_initial(prefetch=None):
     if not prefetch:
         print("prefetch")
         prefetch = prefetch_polys()
-    # querry by (factoring, slope type); field q; hyperelliptic classification: returns the polynomial, coefficients in factored form, and label
+    # querry by hyperelliptic classification; (factoring, slope type); field q: returns the polynomial, coefficients in factored form, and label
     data = defaultdict(partial(defaultdict, partial(defaultdict, list)))
     
     # set up keys for database querry
@@ -70,13 +82,100 @@ def write_data(data):
                 filename = f"new/data_{have_hyp}_{q}_{factoring}_{slopes}.txt"
                 with open(filename, "w") as F:
                     for poly in polys:
-                        F.write(f"{poly[1]}, {poly[0]}, {poly[2]}, {poly[1][0]^2 - poly[1][1]^2  + poly[1][2]} \n")
+                        F.write(f"{poly[1]}, {poly[0]}, {poly[2]}, {poly[1][0]**2 - poly[1][1]**2  + poly[1][2]} \n")
 
 def all_coeff_patterns(mod):
     for i in range(mod):
         for j in range(mod):
             for k in range(mod):
                 yield (i, j, k)
+
+def restriction(x, y, z, q):
+    return z == 2*trial_division(q)
+def x_modification(x_value):
+    return x_value
+def y_modification(y_value):
+    return y_value
+def z_modification(z_value):
+    return z_value
+
+
+def plot(data, factoring, slope_type, q):
+    positive_key = True
+    negative_key = 'unknown'
+    sc1 = []
+    sc2 = []
+    if q == 0:
+        pr = [2, 4, 8, 16]
+        fig = plt.figure(num=1)
+        rows = 2
+        cols = 2
+
+    elif q == 1:
+        pr = [3, 5, 7, 9, 11, 13, 17, 19, 23, 25]
+        fig = plt.figure(num=1)
+        rows = 3
+        cols = 4
+    elif q == -1:
+        pr = [9, 25]
+        fig = plt.figure(num=1)
+        rows = 1
+        cols = 2
+    else:
+        pr = [q]
+        rows = 1
+        cols = 1
+        fig = plt.figure(num=1)
+    for i in range(len(pr)):
+        q = pr[i]
+        
+        x1 = []; y1 = []; z1 = []
+        x2 = []; y2 = []; z2 = []
+
+        # “negative” group
+        for _, (x, y, z), _ in data[negative_key][factoring, slope_type][q]:
+            if restriction(x, y, z, q):
+                x1.append(x); y1.append(y); z1.append(z)
+        # “positive” group
+        for _, (x, y, z), _ in data[positive_key][factoring, slope_type][q]:
+            if restriction(x, y, z, q):
+                x2.append(x); y2.append(y); z2.append(z)
+
+        # create the figure & 3D axes
+        # ax = fig.add_subplot(111, projection='3d')
+        ax = fig.add_subplot(rows, cols, i + 1, projection='3d')
+        ax.set_proj_type('ortho')
+        ax.set_xlabel('a')
+        ax.set_ylabel('b')
+        ax.set_zlabel('c')
+        ax.set_title(str(q))
+
+        # plot both groups
+        sc1.append(ax.scatter(x1, y1, z1, marker='x', c='red', label=str(negative_key), s=50))
+        sc2.append(ax.scatter(x2, y2, z2, c='green', label=str(positive_key), s=50))
+
+    # place checkbuttons in a small inset axes
+    # [left, bottom, width, height] in fraction of figure
+    ax_checkbox = fig.add_axes([0.02, 0.4, 0.12, 0.15])
+    labels     = [str(negative_key), str(positive_key)]
+    visibility = [True, True]
+    check      = CheckButtons(ax_checkbox, labels, visibility)
+
+    # toggle visibility callback
+    def _toggle(label):
+        if label == str(negative_key):
+            for sc in sc1:
+                sc.set_visible(not sc.get_visible())
+        else:
+            for sc in sc2:
+                sc.set_visible(not sc.get_visible())
+        plt.draw()
+
+    check.on_clicked(_toggle)
+
+    plt.show()
+
+    
 
 exp_patterns = ((6,), (2, 4), (2, 2, 2))
 def pattern_keys():
@@ -172,7 +271,7 @@ def rule_check(data):
                         if c < 0:
                             # div = Integer(c).prime_divisors()
                             # div_ = [p for p in div if p < abs(c)]
-                            # if all([p%12==1 for p in div_]) and b^3+c==-q^2:
+                            # if all([p%12==1 for p in div_]) and b**3+c==-q**2:
                             if is_prime(abs(c)):
                                 a_p = {e: a**e for e in (1,2,3)}
                                 b_p = {e: b**e for e in (1,2,3)}
@@ -205,7 +304,7 @@ def power_rules(results, data):
                         if c<0 and is_prime(abs(c)):
                             rules_good = []
                             for e1,e2,e3,e4,d1,d2,d3 in all_rules_odd:
-                                if d1*a^e1+d2*b^e2+d3*c^e3 == q^e4:
+                                if d1*a**e1+d2*b**e2+d3*c**e3 == q**e4:
                                     # rules_good.append(rules[(e1,e2,e3,e4,d1,d2,d3)])
                                     rules_good.append((e1,e2,e3,e4,d1,d2,d3))
                             if rules_good:
@@ -229,166 +328,145 @@ def point_count(data):
             print(q, len(obstructed[q]["neg"]), len(obstructed[q]["div"]), len(unobstructed[q]))
     return obstructed, unobstructed
 
-
-def discriminant_check(data):
+def powerset(iterable):
     """
-    for curves of the form E^3, check for restrictions on the discriminant t^2-4q.
-    (x^2 - tx + q)^3.
+    Return the powerset of the given iterable as an iterator of tuples.
     """
-    exp_pattern = (2,2,2)
-    disc_results = {}
-    obstructed_discriminants = []        
-    for disc in range(-100, 0):
-        disc_results[(disc, True)] = []
-        disc_results[(disc, False)] = []
-        for slopes in range(5):
-            for have_hyp in {True, False}:
-                for q in primes:
-                    for polyn in data[q][(exp_pattern, slopes, have_hyp)]:
-                        coeffs = polyn[1]
-                        #check the form E^3
-                        if coeffs[0] == coeffs[1] == coeffs[2]:
-                            discriminant = coeffs[0]**2 - 4*q
-                            if discriminant == disc:
-                                disc_results[(disc, have_hyp)].append(polyn)
-        
-        if disc_results[(disc, True)] == [] and disc_results[(disc, False)] != []:
-            obstructed_discriminants.append(disc)
-            print(f"discriminant {disc} with # {len(disc_results[(disc, False)])}")
+    s = list(iterable)
+    return chain.from_iterable(combinations(s, r) for r in range(len(s) + 1))
 
-    print(obstructed_discriminants)
+def boolean_powerset_funcs(funcs_dict):
+    """
+    Given a dict mapping label->boolean function,
+    return a dict mapping each subset-label to a new function that ANDs
+    all funcs in that subset.
 
+    - Empty subset gets label 'TRUE' and always returns True.
+    """
+    result = {}
+    items = list(funcs_dict.items())
+    for subset in powerset(items):
+        if subset:
+            labels, funcs = zip(*subset)
+            combo_label = ' and '.join(labels)
+        else:
+            combo_label = 'TRUE'
+            funcs = ()
+        def combo_fn(*args, _funcs=funcs, **kwargs):
+            return all(f(*args, **kwargs) for f in _funcs)
 
-def patterns_mod():
-    for p in [2,3,5]:
-        for mod in range(p):
-            for coeff in ['a', 'b', 'c']:
-                yield(p, mod, coeff)
+        result[combo_label] = combo_fn
 
+    return result
 
-def prime_divisors_check(data):
-    divisor_results = {}
-    obstructed_div_mod_factoring = []
-    for q in primes:
-        for exp in exp_patterns: 
-            for p, mod, coeff in patterns_mod():
-                for have_hyp in {True, False}:
-                    for slopes in slope_types:
-                        divisor_results[(p, mod, exp, have_hyp, slopes)] = []
-                        print((p, mod, exp, have_hyp, coeff))
-                        for polyn in data[q][(exp, slopes, have_hyp)]:
-                            a, b, c = polyn[1][0], polyn[1][1], polyn[1][2]
-                            if coeff == 'a':
-                                if a != 0:
-                                    prime_div = prime_divisors(a)
-                                    check = all([div%p == mod for div in prime_div])
-                                    if check:
-                                        divisor_results[(p, mod, exp, have_hyp, slopes)].append(polyn)
-                                elif mod == 0:
-                                    divisor_results[(p, mod, exp, have_hyp, slopes)].append(polyn)
-                            if coeff == 'b':
-                                if b != 0:
-                                    prime_div = prime_divisors(b)
-                                    check = all([div%p == mod for div in prime_div])
-                                    if check:
-                                        divisor_results[(p, mod, exp, have_hyp, slopes)].append(polyn)
-                                elif mod == 0:
-                                    divisor_results[(p, mod, exp, have_hyp, slopes)].append(polyn)
-                            if coeff == 'c':
-                                if c != 0:
-                                    prime_div = prime_divisors(c)
-                                    check = all([div%p == mod for div in prime_div])
-                                    if check:
-                                        divisor_results[(p, mod, exp, have_hyp, slopes)].append(polyn)
-                                elif mod == 0:
-                                    divisor_results[(p, mod, exp, have_hyp, slopes)].append(polyn)
-                if divisor_results[(p, mod, exp, True, slopes)] == [] and divisor_results[(p, mod, exp, False, slopes)] != []:
-                    obstructed_div_mod_factoring.append((p, mod, exp, slopes))
+def power_rule_check(rule, coeffs, q):
+    e1, e2, e3, e4, d1, d2, d3 = rule
+    a, b, c = coeffs
+    return d1*a**e1 + d2*b**e2 + d3*c**e3 == q**e4
 
-    print('done')
-    print(obstructed_div_mod_factoring)
+HYPOTHESES = {'a prime': lambda a,b,c: is_prime(abs(a)),
+              'b prime': lambda a,b,c: is_prime(abs(b)),
+              'c prime': lambda a,b,c: is_prime(abs(c)),
+              'a<0': lambda a,b,c: a<0,
+              'b<0': lambda a,b,c: b<0,
+              'c<0': lambda a,b,c: c<0}
 
-def distances():
-    for i in range(100):
-        for j in range(100):
-            yield (i, j)
-
-def distance_check(data):
-    exp_pattern = (2,2,2)
-    dist_results = {}
-    obstructed_dist = []
-    for q in primes:
-        for slopes in range(5):
-            for dist in distances():
-                dist_results[(dist, True)] = []
-                dist_results[(dist, False)] = []
-                for have_hyp in {True, False}:
-                        for polyn in data[q][(exp_pattern, slopes, have_hyp)]:
-                            coeffs = sorted(polyn[1])
-                            a, b, c = coeffs[2], coeffs[1], coeffs[0]
-                            if a - b == dist[0] and b - c == dist[1]:
-                                dist_results[(dist, have_hyp)].append(polyn)
-                
-                if dist_results[(dist, True)] == [] and dist_results[(dist, False)] != []:
-                    obstructed_dist.append(dist)
-                    print(q, slopes, dist, len(dist_results[(dist, False)]))
-
-    print(obstructed_dist)
-    # print(dist_results[0, False], dist_results[0,True])
-
-def parity_check_2(data):
-    exp_pattern = (2,4)
-    parity_results = {}
-    obstructed_polys = []
-    slopes = 2
-    for q in {2,4,8,16}:
-        for hyp in {True, False}:
-            for div in range(2,4):
-                for mod1 in range(div):
-                    for mod2 in range(div):
-                        for mod3 in range(div):
-                            parity_results[(div, mod1, mod2, mod3, hyp)] = []
-                            for polyn in data[q][(exp_pattern, slopes, hyp)]:
-                                coeffs = polyn[1]
-                                if coeffs[0]%div == mod1 and coeffs[1]%div == mod2 and coeffs[2]%div == mod3:
-                                    parity_results[(div, mod1, mod2, mod3, hyp)].append(polyn)
-    for div in range(2,4):
-        for mod1 in range(div):
-            for mod2 in range(div):
-                for mod3 in range(div):
-                    if parity_results[(div, mod1, mod2, mod3, True)]==[] and parity_results[(div, mod1, mod2, mod3, False)]!=[]:
-                        print((div, mod1, mod2, mod3), len(parity_results[(div, mod1, mod2, mod3, False)]))
-    # print(parity_results[True], "break", parity_results[False])
-    print('done')
-
-def equality_check(data):
-    #this is for p-rank zero, irreducible
-    exp_pattern = (2,2,2)
-    exp_slopes = {1,4}
-    obstructed_q_results = {}
-    obs_q = []
-    for q in primes:
-        # p = char[q]
-        for have_hyp in {True, False}:
-            obstructed_q_results[(q, have_hyp)] = []
-            for slopes in exp_slopes:
-                for polyn in data[q][(exp_pattern, slopes, have_hyp)]:
-                    a, b, c = polyn[1][0], polyn[1][1], polyn[1][2]
-                    if a**2 == b**2 and b**2 == c**2:
-                        obstructed_q_results[(q, have_hyp)].append([a,b,c])
-        if obstructed_q_results[(q, True)] == [] and obstructed_q_results[(q, False)] != []:
-            obs_q.append(q)
-            print(q, obstructed_q_results[(q, False)])
-
-    print(obs_q)
-
+ALL_HYPOTHESES = boolean_powerset_funcs(HYPOTHESES)
 
 def our_jacobi_rules(poly, slopes, q, exps, coeffs):
     p = trial_division(q)
 
     coeffs4 = tuple([c % 4 for c in coeffs])
     poly2 = tuple([c % 2 for c in poly[1:4]])
-    sorted_coeffs = sorted(coeffs)
+    sorted_coeffs = tuple(sorted(coeffs))
+    if len(exps) == 3:
+        a,b,c = sorted_coeffs
+    else:
+        a, b, c = coeffs
+
+    p_rank = p_rank_dict[slopes]
+    
+    rules = {}
+
+    vq = log(q, p)
+
+    if p == 2:
+        # Case 1 of Theorem 1
+        rules['0.N.N.0'] = poly2 in ((0, 1, 1), (1, 0, 1), (1, 1, 0))
+
+        # Prop 1
+        rules['0.N.0.0'] = slopes == 4
+
+        rules['0.2.2.0'] = p_rank == 2 and len(exps) == 2 and a == 0 and c in (2*q - 3, 2*q + 3)
+        # rules['0.3.3.0'] = p_rank == 3 and len(exps) == 3 and a == b and b == c and a%2 == 1 and abs(a) > ceil(q/4)
+
+        rules['0.3.1.0'] = p_rank == 1 and len(exps) == 3 and (c - a in (1, sqrt(p*q) or (b-a, c-b) in ((sqrt(p*q), 1), (1, sqrt(p*q)))))
+
+    elif p != 2:
+        # Costa Theorem 2.8
+        rules['1.N.N.0'] = poly2[1:] == (0, 1)
+
+        # 2x4 splitting, slope type 2, prime field != 2, (1, 0, 2) mod 4 or (3, 0, 2) mod 4 pattern
+        rules['1.2.1.0'] = is_prime(q) and p_rank == 1 and len(exps) == 2 and coeffs4 in ((1, 0, 2), (3, 0, 2))
+
+        rules['1.2.2.0'] = is_prime(q) and p_rank == 2 and len(exps) == 2 and b % 2 == 1 and c in (2*q - 2, 2*q - 3, 2*q + 2, 2*q + 3)
+
+        rules['1.3.0.0'] = False
+        if p == 3 and p_rank == 0 and len(exps) == 3:
+            for k in range(1, vq):
+                rules['1.3.0.0'] |= (b, c) == (3*k, 3*vq)
+                rules['1.3.0.0'] |= (a, b) == (-3*k, -3*vq)
+                rules['1.3.0.0'] |= b == 0 and (a, c) in ((-3, 3*vq), (-3*vq, 3))
+
+        # rules['1.3.1.0'] = p_rank == 1 and len(exps) == 3 and (sorted_coeffs == (-3, 0, 0) or sorted_coeffs == (0, 0, 3))
+
+        rules['1.3.1.1'] = is_square(q) and p_rank == 1 and len(exps) == 3 and abs(poly[1]) <= q**0.5 and poly[1]%2 == 1
+
+        # rules['1.3.1.2'] = q % 4 == 3 and is_prime(q) and p_rank == 1 and len(exps) == 3 and sorted_coeffs in ((-2, 0, 0), (0, 0, 2))
+        rules['1.3.1.2'] = q % 4 == 3 and q > 3 and is_prime(q) and p_rank == 1 and len(exps) == 3 and abs(a) <= 3 and abs(c) <= 3
+
+        rules['1.3.1.3'] = q % 4 == 1 and is_prime(q) and p_rank == 1 and len(exps) == 3 and (abs(a) in (1, 3) or abs(c) in (1, 3))
+
+        forbidden = [(-4, -1, 0), (0, 1, 4), (-4, -3, 0), (0, 3, 4), (-3, -2, 0), (-2, 0, 1), (-1, 0, 2), (0, 2, 3), ]
+        rules['1.3.2.0'] = p_rank == 2 and len(exps) == 3 and (a, b, c) in forbidden
+
+        rules['1.3.2.1'] = q % 4 == 1 and p_rank == 2 and len(exps) == 3 and (a, b, c) in ((-2, -2, 0), (0, 2, 2))
+
+        # rules['1.3.3.0'] = p_rank == 3 and len(exps) == 3 and a**2 == b**2 and b**2 == c**2 and a%2 == 1
+
+        rules['1.3.3.1'] = p_rank == 3 and len(exps) == 3 and a == b and b == c and abs(a) > ceil(q/3)
+
+        rules['1.3.3.2'] = p_rank == 3 and len(exps) == 3 and a**2 + b**2 + c**2 == 9
+        
+    rules['N.1.N.0'] = len(exps) == 1 and c < 0 and is_prime(-c) and b**3 + c == -q**2
+
+    # 2x2x2 splitting of the form (x**2 - tx + q)**3, conditions on discriminant t**2 - 4q
+    obstructed_discriminants = [-99, -91, -83, -75, -67, -59, -51, -43, -39, -35, -27, -23, -20, -19, -15, -12, -11, -8, -7, -4, -3, 0]
+    rules['N.3.N.0'] = len(exps) == 3 and a==b and b==c and (a**2 - 4*q in obstructed_discriminants)
+
+    # 2x2x2 splitting, if two are equal and third is not (so abs(a - b) + abs(b - c) + abs(a - c) == 2)
+    rules['N.3.N.1'] = len(exps) == 3 and abs(a - b) + abs(b - c) + abs(a - c) == 2
+
+    # 2x2x2 splitting with parameters a >= b >= c, checks that a - b = b - c = 1
+    rules['N.3.N.2'] = len(exps) == 3 and c - b == 1 and b - a == 1
+
+    rules['N.3.0.1'] = p_rank == 0 and len(exps) == 3 and ((a, b) == (-p*vq, -p*vq) or (b, c) == (p*vq, p*vq))
+
+    rules['S.2.0.0'] = is_prime(q) and q % 8 != 7 and p_rank == 0 and len(exps) == 2 and (a,b,c) == (0, 0, -2*q)
+
+    rules['S.3.0.0'] = p in (2, 3, 5) and len(exps) == 3 and p_rank == 0 and abs(a) != p*vq and abs(c) != p*vq
+
+    # 2x2x2 splitting, p-rank=0, for q=2,3,4,9 if a**2 = b**2 = c**2 and p | a**2
+    # rules['S.3.0.1'] = p in {2, 3, 5} and p_rank == 0 and len(exps) == 3 and a**2 == b**2 and b**2 == c**2
+    
+    return rules
+
+def our_jacobi_rules_old(poly, slopes, q, exps, coeffs):
+    p = trial_division(q)
+
+    coeffs4 = tuple([c % 4 for c in coeffs])
+    poly2 = tuple([c % 2 for c in poly[1:4]])
+    sorted_coeffs = tuple(sorted(coeffs))
     if len(exps) == 3:
         a,b,c = sorted_coeffs
     else:
@@ -399,69 +477,53 @@ def our_jacobi_rules(poly, slopes, q, exps, coeffs):
     rules = {}
 
     # Costa Theorem 2.8
-    rules['Costa'] = poly2[1:] == (0, 1) and p%2 != 0
+    rules['Costa'] = p%2 != 0 and poly2[1:] == (0, 1)
 
-    # Case 1 in Theorem 1
-    # rules['Thm 1.1'] = poly2 == (0, 0, 1) and slopes != 0 and p == 2
+    # Case 1 of Theorem 1
+    rules['Thm 1.1'] = p == 2 and poly2 == (0, 1, 1) 
 
-    # Case 2 of Theorem 1
-    rules['Thm 1.2'] = poly2 == (0, 1, 1) and p == 2
+    # Case 2 in Theorem 1
+    rules['Thm 1.2'] = p == 2 and slopes != 3 and poly2 == (1, 0, 1)
 
     # Case 3 in Theorem 1
-    rules['Thm 1.3'] = poly2 == (1, 0, 1) and slopes != 3 and p == 2
-
-    # Case 4 in Theorem 1
-    # rules['Thm 1.4'] = poly2 == (1, 1, 1) and (not slopes in (0, 2)) and p == 2
-
-    # Case 5 in Theorem 1
-    rules['Thm 1.5'] = (slopes == 3) and p == 2 and poly2 == (1, 1, 0)
+    rules['Thm 1.3'] = p == 2 and slopes == 3 and poly2 == (1, 1, 0)
 
     # Prop 1
-    rules['Proposition 1'] = (slopes == 4) and (q % 2 == 0)
+    rules['Proposition 1'] = p == 2 and slopes == 4
 
     # 2x4 splitting, slope type 2, prime field != 2, (1, 0, 2) mod 4 or (3, 0, 2) mod 4 pattern
-    rules[2] = len(exps) == 2 and (coeffs4 == (1, 0, 2) or coeffs4 == (3, 0, 2)) and p == q and p != 2 and slopes == 2
+    rules[2] = (p != 2 and is_prime(q)) and slopes == 2 and len(exps) == 2 and (coeffs4 == (1, 0, 2) or coeffs4 == (3, 0, 2))
 
-
-    # 2x2x2 splitting of the form (x^2 - tx + q)^3, conditions on discriminant t^2 - 4q
-    rules[3] = False
+    # 2x2x2 splitting of the form (x**2 - tx + q)**3, conditions on discriminant t**2 - 4q
     obstructed_discriminants = [-99, -91, -83, -75, -67, -59, -51, -43, -39, -35, -27, -23, -20, -19, -15, -12, -11, -8, -7, -4, -3, 0]
-    if len(exps) == 3:
-        if a==b==c and (a**2 - 4*q in obstructed_discriminants):
-            rules[3] = True
+    rules[3] = len(exps) == 3 and a==b==c and (a**2 - 4*q in obstructed_discriminants)
     
     # 2x2x2 splitting with parameters a >= b >= c, checks that a - b = b - c = 1
-    rules[4] = False
-    if len(exps) == 3:
-        rules[4] = c - b == 1 and b - a == 1
-
+    rules[4] = len(exps) == 3 and c - b == 1 and b - a == 1
     
     # 2x2x2 splitting, if two are equal and third is not (so abs(a - b) + abs(b - c) + abs(a - c) == 2)
     rules[5] = len(exps) == 3 and abs(a - b) + abs(b - c) + abs(a - c) == 2
 
-    # 2x2x2 splitting, p-rank=0, for q=2,3,4,9 if a^2 = b^2 = c^2 and p | a^2
-    rules[6] = False
-    if len(exps) == 3 and slopes in {1,4} and q in {2,3,4,9}:
-        rules[6] = a**2 == b**2 and b**2 == c**2 and b % p == 0
+    # 2x2x2 splitting, p-rank=0, for q=2,3,4,9 if a**2 = b**2 = c**2 and p | a**2
+    rules[6] = p in {2, 3, 5} and slopes in {1, 4} and len(exps) == 3 and a**2 == b**2 and b**2 == c**2
 
     forbidden = [(-4, -1, 0), (0, 1, 4), (-4, -3, 0), (0, 3, 4), (-3, -2, 0), (-2, 0, 1), (-1, 0, 2), (0, 2, 3), ]
     
-    rules[7] = p == q and (sorted_coeffs == (-3, 0, 0) or sorted_coeffs == (0, 0, 3)) and slopes == 2 and exps == (2,2,2) and q % 2 != 0
-    rules[8] = p == q and (sorted_coeffs == (-2, 0, 0) or sorted_coeffs == (0, 0, 2)) and slopes == 2 and exps == (2,2,2) and q % 4 == 3
-    rules[9] = p != q and (abs(poly[1]) <= q**0.5 and poly[1]%2 == 1) and slopes == 2 and exps == (2,2,2) and q % 2 != 0
-    rules[10] = p == q and c in (2*q - 2, 2*q - 3, 2*q + 2, 2*q + 3) and b % 2 == 1 and slopes == 3 and exps == (2, 4)
-    rules[11] = a == 0 and c in (2*q - 3, 2*q + 3) and slopes == 3 and exps == (2, 4) and p == 2
-    rules[12] = a^2 + c^2 + a - c == 6 and slopes == 3 and exps == (2, 2, 2) and p == 2
-    rules[13] = a^2 + b^2 + c^2 == 9 and slopes == 0 and exps == (2,2,2) and p != 2
-    rules[14] = (a, b, c) in forbidden and slopes == 3 and exps == (2,2,2) and p != 2
-    rules[15] = (a, b, c) in [(-2, -2, 0), (0, 2, 2)] and slopes == 3 and exps == (2,2,2) and p != 2 and q % 4 == 1
+    rules[7] = p != 2 and is_prime(q) and slopes == 2 and len(exps) == 3 and (sorted_coeffs == (-3, 0, 0) or sorted_coeffs == (0, 0, 3))
+    rules[8] = q % 4 == 3 and is_prime(q) and slopes == 2 and len(exps) == 3 and (sorted_coeffs == (-2, 0, 0) or sorted_coeffs == (0, 0, 2))
+    rules[9] = p != 2 and is_square(q) and slopes == 2 and len(exps) == 3 and (abs(poly[1]) <= q**0.5 and poly[1]%2 == 1)
+    rules[10] = p == q and slopes == 3 and len(exps) == 2 and b % 2 == 1 and c in (2*q - 2, 2*q - 3, 2*q + 2, 2*q + 3)
+    rules[11] = p == 2 and slopes == 3 and len(exps) == 2 and a == 0 and c in (2*q - 3, 2*q + 3)
+    rules[12] = p == 2 and slopes == 3 and len(exps) == 3 and a**2 + c**2 + a - c == 6
+    rules[13] = p != 2 and slopes == 0 and len(exps) == 3 and a**2 + b**2 + c**2 == 9
+    rules[14] = p != 2 and slopes == 3 and len(exps) == 3 and (a, b, c) in forbidden
+    rules[15] = q % 4 == 1 and slopes == 3 and len(exps) == 3 and (a, b, c) in [(-2, -2, 0), (0, 2, 2)]
 
-    rules[16] = len(exps) == 1 and c < 0 and -c in prime_nums and b + c == -q^2
-    rules[17] = len(exps) == 1 and c < 0 and -c in prime_nums and b^3 + c == -q^2
+    rules[16] = len(exps) == 1 and c < 0 and -c in prime_nums and b + c == -q**2
+    rules[17] = len(exps) == 1 and c < 0 and -c in prime_nums and b**3 + c == -q**2
     
     # if iso_class.has_jacobian == -1 or rule1 or rule2 or rule3:
     return rules
-
 
 def get_abc(factors, classification):
     factors.sort(key=lambda x: len(x))
@@ -535,7 +597,7 @@ def test_new_rule(data=None):
               "false positives": defaultdict(int),
               True: defaultdict(int)}
     
-    for (exps, slope), D in data["unknown"].items():
+    for (exps, slope), D in data[False].items():
         for q, polys in D.items():
             for poly in polys:
                 counts[False][(exps, slope)] += 1
@@ -543,9 +605,9 @@ def test_new_rule(data=None):
                 # evaluates to True if we don't expect a jacobian
                 p = trial_division(q)
                 a, b, c = poly[1]
-                forbidden = [(-4, -1, 0), (0, 1, 4), (-4, -3, 0), (0, 3, 4), (-3, -2, 0), (-2, 0, 1), (-1, 0, 2), (0, 2, 3), ]
+                polyn = tuple([i%2 for i in poly[0][1:4]])
                 newrule = [
-                    False
+                    polyn == (1,0, 1) and p == 2 and slope == 0
                 ]
                 if not (True in newrule):
                     counts['norule'][(exps, slope)] += 1
@@ -559,9 +621,9 @@ def test_new_rule(data=None):
                 # evaluates to True if we don't expect a jacobian
                 p = trial_division(q)
                 a, b, c = poly[1]
-                forbidden = [(-4, -1, 0), (0, 1, 4), (-4, -3, 0), (0, 3, 4), (-3, -2, 0), (-2, 0, 1), (-1, 0, 2), (0, 2, 3), ]
+                polyn = tuple([i%2 for i in poly[0][1:4]])
                 newrule = [
-                    False
+                    polyn == (1,0,1) and p == 2 and slope == 0
                 ]
                 if True in newrule:
                     counts['false positives'][(exps, slope)] += 1
@@ -579,21 +641,57 @@ def test_new_rule(data=None):
     # return data
 
 
+class Table:
+    def __init__(self, array, headers):
+        self.table = array
+        self.headers = headers
+    def __str__(self):
+        string = r'\begin{center}' + '\n'
+        string += r'\begin{tabular}{|' + 'c|'*len(self.table[0]) + '}\n'
+        string += r'\hline' + '\n'
+        for i in range(len(self.headers)):
+            string += r'\textbf{' + str(self.headers[i]) + '}'
+            if i < len(self.headers) - 1:
+                string += r' & '
+            else:
+                string += r' \\' + '\n\\hline \n'
+        for line in self.table:
+            for i in range(len(line)):
+                string += str(line[i])
+                if i < len(line) - 1:
+                    string += r' & '
+                else:
+                    string += r' \\ \hline' + '\n'
+        string += r'\end{tabular}' + '\n' + r'\end{center}'
+        return string
 color = lambda ratio: (255*(ratio)**0.5, 255 - 255*(ratio)**0.5, 0)
 
-def print_statistics(data=None):
+def print_statistics(data=None, table=False):
     if not data:
         data = get_data()
 
     counts = defaultdict(lambda: defaultdict(int))
+    headers = ['(Factoring, $p$-rank)', 'Undetected by our rules', 'Undetected by all rules']
+    array = defaultdict(list)
 
     for have_hyp, D1 in data.items():
         for (exps, slope), D2 in D1.items():
             for q, polys in D2.items():
                 counts[have_hyp][(exps, slope)] += len(polys)
 
-    for (exps, slope) in sorted(counts[False]):
-        print(exps, slope)
+    for (exps, slope) in sorted(counts[False], key=lambda x:(x[0], p_rank_dict[x[1]])):
+        if slope == 1:
+            continue
+        if slope == 4:
+            counts[False][(exps, slope)] += counts[False][(exps, 1)]
+            counts[False][exps, 1] = 0
+            counts['undetected'][(exps, slope)] += counts['undetected'][(exps, 1)]
+            counts['undetected'][(exps, 1)] = 0
+            counts['unknown'][(exps, slope)] += counts['unknown'][(exps, 1)]
+            counts['unknown'][(exps, 1)] = 0
+            counts['norule'][(exps, slope)] += counts['norule'][(exps, 1)]
+            counts['norule'][(exps, 1)] = 0
+        print(f"factoring pattern: {exps}, p-rank: {p_rank_dict[slope]}")
         undetected = counts['undetected'][(exps, slope)]
         false = counts[False][(exps, slope)]
         cprint(f"\t Percent negatives undetected by our rules: {undetected}/{false} = {float(undetected/false)}", color(undetected/false))
@@ -601,6 +699,7 @@ def print_statistics(data=None):
         cprint(f"\t Percent negatives undetected by our rules + known obstructions: {unknown}/{false} = {float(unknown/false)}", color(unknown/false))
         norule = counts['norule'][(exps, slope)]
         # cprint(f"\t Percent negatives undetected by our rules + known obstructions: {norule}/{false} = {float(norule/false)}", color(norule/false))
+        array[exps, slope] = [(len(exps), p_rank_dict[slope]), f'{undetected}/{false} = {float(undetected/false):.4f}', f'{unknown}/{false} = {float(unknown/false):.4f}']
 
     undetected = sum(counts['undetected'].values())
     false = sum(counts[False].values())
@@ -609,13 +708,20 @@ def print_statistics(data=None):
     print()
     cprint(f"Percent negatives undetected: {undetected}/{false} = {float(undetected/false)}", color(undetected/false))
     cprint(f"Percent negatives undetected: {unknown}/{false} = {float(unknown/false)}", color(unknown/false))
+    array['last'] = [r'\textbf{Total}', f"{undetected}/{false} = {float(undetected/false):.4f}", f"{unknown}/{false} = {float(unknown/false):.4f}"]
     # cprint(f"Percent negatives undetected: {norule}/{false} = {float(norule/false)}", color(norule/false))
+    if table:
+        table = Table([array[l] for l in array], headers)
+        print(table)
 
-def print_statistics_by_rule(data=None):
+def print_statistics_by_rule(data=None, table=False):
     if not data:
         data = get_data()
     
-    counts = defaultdict(int)
+    counts = defaultdict(set)
+
+    headers = ['Rule', 'Number of hits', 'Number of unique hits']
+    array = dict()
 
     for (exps, slope), D in data[False].items():
         for q, polys in D.items():
@@ -623,9 +729,39 @@ def print_statistics_by_rule(data=None):
                 r = our_jacobi_rules(poly[0], slope, q, exps, poly[1])
                 for rule in r:
                     if r[rule] == True:
-                        counts[rule] += 1
+                        counts[rule].add(poly[2])
     
-    pprint(counts)
+    for rule in sorted(counts.keys(), key=lambda x:str(x)):
+        other_hits = set()
+        for r in counts:
+            if r != rule:
+                other_hits = other_hits.union(counts[r])
+        print(f"Rule: {rule}, Number of hits: {len(counts[rule])}, Number of unique hits: {len(counts[rule] - other_hits.intersection(counts[rule]))}")
+        array[rule] = [r'\textbf{' + rule + '}', len(counts[rule]), len(counts[rule] - other_hits.intersection(counts[rule]))]
+
+    if table:
+        table = Table([array[l] for l in array], headers)
+        print(table)
+
+def print_statistics_by_rule_and_type(data=None, table=False):
+    if not data:
+        data = get_data()
+
+    for (exps, slope), D in data[False].items():
+        counts = defaultdict(set)
+        for q, polys in D.items():
+            for poly in polys:
+                r = our_jacobi_rules(poly[0], slope, q, exps, poly[1])
+                for rule in r:
+                    if r[rule] == True:
+                        counts[rule].add(poly[2])
+    
+        for rule in sorted(counts.keys(), key=lambda x:str(x)):
+            other_hits = set()
+            for r in counts:
+                if r != rule:
+                    other_hits = other_hits.union(counts[r])
+            print(f"Type: {exps}, {p_rank_dict[slope]}, Rule: {rule}, Number of hits: {len(counts[rule])}, Number of unique hits: {len(counts[rule] - other_hits.intersection(counts[rule]))}")
 
 def known_jacobi_sort(data=None):
     if not data:
@@ -651,3 +787,115 @@ def known_jacobi_sort(data=None):
     pickle_data(data)
     # return data
 
+def mod_2_checks(data):
+    for pattern in all_coeff_patterns(2):
+        for (exps, slope), D in data[False].items():
+            flag = 0
+            for q in [2, 4, 8, 16]:
+                for poly in data[False][(exps, slope)][q]:
+                    if tuple([c % 2 for c in poly[0][1:4]]) == pattern:
+                        flag += 1
+                    # if tuple([c % 2 for c in poly[1]]) == pattern:
+                    #     flag += 1
+                        
+            if flag:
+                flag2 = True
+                for q in [2,4,8,16]:
+                    for poly in data[True][exps, slope][q]:
+                        if tuple([c%2 for c in poly[0][1:4]]) == pattern:
+                        # if tuple([c%2 for c in poly[1]]) == pattern:
+                            flag2 = False
+                            # flag2 = False
+            if flag2 and flag:
+                print(exps, slope, pattern, flag)
+
+def rule_set_comp(data):
+    for (exps, slope), D in data[False].items():
+        for q in [2, 4, 8, 16]:
+            for poly in data[False][exps, slope][q]:
+                pol = tuple([c % 2 for c in poly[0][1:4]])
+                rules1 = [
+                    exps == (6,) and slope == 0 and pol in ((0, 1, 1), (1, 0, 1)),
+                    exps == (6,) and slope == 3 and pol == (1, 1, 0),
+                    exps == (2, 4) and slope == 3 and pol == (1, 1, 0),
+                ]
+                rules1 = True in rules1
+                coeff = tuple([c % 2 for c in poly[1]])
+                rules2 = [
+                    exps == (2, 4) and coeff == (0, 1, 1),
+                    exps == (2, 4) and slope != 0 and coeff == (1, 0, 1),
+                    exps == (6,) and slope != 0 and coeff in ((0, 0, 1), (1, 0, 1)),
+                    exps == (6,) and slope == 0 and coeff in ((1, 0, 1), (0, 1, 1)),
+                    exps == (6,) and slope == 3 and coeff[0] == 1,
+                ]
+                rules2 = True in rules2
+                if rules1 != rules2:
+                    print(exps, slope, rules1, rules2, poly)
+
+
+def write_rule_statistics_table(stats, name):
+    headers = ['Hypothesis','# Hits', '# Unique Rules', '# Rules Hit All Fields', '# Rules w/ Unique Hits', 'Top Rules']
+    max_label_width = max(len(headers[0]), max(len(str(label)) for label in stats))
+    col_widths = []
+    for i in range(1, 6):
+        max_cell = max(len(headers[i]), max((len(str(v[i-1])) for v in stats.values() if len(v) >= i), default=0))
+        col_widths.append(max_cell)
+    filename = f"{name}.txt"
+    with open(filename, 'w') as f:
+        f.write(' '.join([headers[0].ljust(max_label_width)] +
+                         [headers[i].ljust(col_widths[i-1]) for i in range(1, 6)]) + '\n')
+        for label, values in sorted(stats.items(), key=lambda item: -item[1][0]):
+            cells = [str(values[i]) if i < len(values) else '' for i in range(5)]
+            f.write(' '.join([label.ljust(max_label_width)] +
+                             [cells[i].ljust(col_widths[i]) for i in range(5)]) + '\n')
+
+
+def rule_overlap(data):
+    slope_types, fac_patterns = [0,1,2,3,4], [(2,2,2), (2,4), (6,)]
+    rule_names = set(range(2, 18)).union({'Costa', 'Thm 1.2', 'Thm 1.3', 'Thm 1.5', 'Proposition 1'})
+    classified = {rule: set() for rule in rule_names}
+    all_hits = set()
+    for q in primes:
+        for slope in slope_types:
+            for exp_pat in fac_patterns:
+                for poly in data[False][(exp_pat, slope)][q]:
+                    rules = our_jacobi_rules(poly[0], slope, q, exp_pat, poly[1])
+                    for k, v in rules.items():
+                        if v:
+                            classified[k].add(tuple(poly[0]))
+                            all_hits.add(tuple(poly[0]))
+    hits = {rule: set() for rule in rule_names}
+    for k, v in classified.items():
+        others = set().union(*(classified[r] for r in rule_names if r != k))
+        hits[k] = (v - others, len(v - others), len(v))
+
+    ## pairwise intersections
+    filename = f"Intersections.txt"
+    pairs = sorted([(A, B) for A in rule_names for B in rule_names if A!=B], key=lambda pair: -len(classified[pair[0]] & classified[pair[1]]))
+    with open(filename, 'w') as f:
+        for A, B in pairs:
+            f.write(f"Rules {A} and {B}: size of {A}: {len(classified[A])}, size of {B}: {len(classified[B])}, size of intersection: {len(classified[A] & classified[B])}. \n")
+
+
+
+
+
+    return hits
+
+def rule_intersections(data, rules, hyp, primes_, exp_patterns, slopes, name):
+    k = len(rules)
+    num_to_rules, rule_to_num = {n: rules[n] for n in range(k)}, {rules[n]: n for n in range(k)}
+    rule_hits = {n: set() for n in range(k)}
+    for q in primes_:
+        for slope in slopes:
+            for exp_pat in exp_patterns:
+                for poly in data[False][(exp_pat, slope)][q]:
+                    if hyp(*poly[1]):
+                        for rule in rules:
+                            if power_rule_check(rule, poly[1], q):
+                                rule_hits[rule_to_num[rule]].add(poly[1])
+    pairs = sorted([(A, B) for A in range(k) for B in range(k) if A < B], key=lambda pair: -len(rule_hits[pair[0]] & rule_hits[pair[1]]))
+    filename = f"Intersection of {name}.txt"
+    with open(filename, 'w') as f:
+        for A, B in pairs:
+            f.write(f"Rules {num_to_rules[A]} and {num_to_rules[B]} of sizes {len(rule_hits[A])} and {len(rule_hits[B])}, size of intersection: {len(rule_hits[A] & rule_hits[B])}. \n")
