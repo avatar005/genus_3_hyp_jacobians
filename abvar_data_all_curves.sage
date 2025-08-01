@@ -15,6 +15,8 @@ import matplotlib.pyplot as plt
 from matplotlib.widgets import CheckButtons
 import os, shutil
 
+'''This is the file that modifies all of the procedures so that it can run on all curves, rather than just hyperelliptics.'''
+
 slope_types = {('0A', '0B', '0C', '1A', '1B', '1C'): 0,
                ('1/2A', '1/2B', '1/2C', '1/2D', '1/2E', '1/2F'): 4,
                ('0A', '1/2A', '1/2B', '1/2C', '1/2D', '1A'): 2,
