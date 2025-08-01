@@ -38,17 +38,6 @@ char = {2:2, 3:3, 4:2, 5:5, 7:7, 8:2, 9:3, 11:11, 13:13, 16:2, 17:17, 19:19, 23:
 # types of factoring that can exist for genus 3 Weil polynomials
 exp_patterns = ((6,), (2, 4), (2, 2, 2))
 
-def count(q, num_fact, data):
-    f = {1: (6,),
-         2: (2,4),
-         3: (2,2,2)}
-    count = [0,0]
-    for num_fact in (num_fact,):
-        for b in [True, False]: 
-            for slope in range(5):
-                count[b] += len(data[b][f[num_fact], slope][q])
-    return float(sum(count))
-
 def N(g, q):
     '''predicted counts of isogeny classes based on [DiPippo, Howe 2000]'''
     count = q**(g*(g+1)/4)
@@ -56,7 +45,7 @@ def N(g, q):
     count *= prod([((2*i)/(2*i - 1))**(g + 1 - i) for i in range(1, g + 1)])
     return float(count)
 
-def prefetch_polys():
+def _prefetch_polys():
     '''Prepare a dictionary of label:polynomial pairs to speed up downloading data from the database'''
 
     data = defaultdict(list)
@@ -68,7 +57,7 @@ def prefetch_polys():
     return data
 
 def get_data_initial(prefetch=None):
-    '''Downloads data from database. Pickles resulting fetched data as a dictionary keyed by hyperelliptic classification; (factoring, slope type), field. 
+    '''Downloads data from database. Pickles resulting fetched data as a dictionary keyed by hyperelliptic classification; (factoring, slope type); field. 
     Each entry contains polynomial, coefficients in factored form, and LMFDB label'''
     
     def get_abc(factors, classification):
@@ -93,10 +82,10 @@ def get_data_initial(prefetch=None):
         return (a, b, c)
 
     if os.path.isfile("data.dict"):
-        raise Exception("The data already exists. Are you sure you want to re-import")
+        raise Exception("The data already exists. Are you sure you want to re-import. Delete the current 'data.dict' file to re-import.")
     if not prefetch:
         print("prefetch")
-        prefetch = prefetch_polys()
+        prefetch = _prefetch_polys()
     # querry by hyperelliptic classification; (factoring, slope type); field q: returns the polynomial, coefficients in factored form, and label
     data = defaultdict(partial(defaultdict, partial(defaultdict, list)))
     
@@ -115,6 +104,7 @@ def get_data_initial(prefetch=None):
         coeffs = get_abc(factors, factoring_type)
         data[have_hyp][factoring_type, slope][q].append((rec["poly"], coeffs, rec["label"]))
 
+    # store data in "data.dict"
     pickle_data(data)
     
 def get_data():
