@@ -6,7 +6,7 @@ import pickle
 import os
 from functools import partial
 from termcolor import cprint
-from pprint import pprint
+# from pprint import pprint
 from itertools import product, chain, combinations
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,22 +15,46 @@ import matplotlib.pyplot as plt
 from matplotlib.widgets import CheckButtons
 import os, shutil
 
+RZ = PolynomialRing(ZZ, 'x')
+
+# allows us to store slope-type of Newton Polygon as a single integer
 slope_types = {('0A', '0B', '0C', '1A', '1B', '1C'): 0,
                ('1/2A', '1/2B', '1/2C', '1/2D', '1/2E', '1/2F'): 4,
                ('0A', '1/2A', '1/2B', '1/2C', '1/2D', '1A'): 2,
                ('0A', '0B', '1/2A', '1/2B', '1A', '1B'): 3,
                ('1/3A', '1/3B', '1/3C', '2/3A', '2/3B', '2/3C'): 1}
 
+# reference dict between internal slope-type numerical identifier and p-rank
 p_rank_dict = {0:3,
                4:0,
                2:1,
                3:2,
                1:0}
 
+# list of primes and dictionary of their respective characteristics
 primes = [2,3,4,5,7,8,9,11,13,16,17,19,23,25]
 char = {2:2, 3:3, 4:2, 5:5, 7:7, 8:2, 9:3, 11:11, 13:13, 16:2, 17:17, 19:19, 23:23, 25:5}
 
+# types of factoring that can exist for genus 3 Weil polynomials
 exp_patterns = ((6,), (2, 4), (2, 2, 2))
+
+def count(q, num_fact, data):
+    f = {1: (6,),
+         2: (2,4),
+         3: (2,2,2)}
+    count = [0,0]
+    for num_fact in (num_fact,):
+        for b in [True, False]: 
+            for slope in range(5):
+                count[b] += len(data[b][f[num_fact], slope][q])
+    return float(sum(count))
+
+def N(g, q):
+    '''predicted counts of isogeny classes based on [DiPippo, Howe 2000]'''
+    count = q**(g*(g+1)/4)
+    count *= 2**g / factorial(g)
+    count *= prod([((2*i)/(2*i - 1))**(g + 1 - i) for i in range(1, g + 1)])
+    return float(count)
 
 def prefetch_polys():
     '''Prepare a dictionary of label:polynomial pairs to speed up downloading data from the database'''
@@ -42,12 +66,6 @@ def prefetch_polys():
             data[rec["label"]] = rec["poly"]
         print(field)
     return data
-
-def pickle_data(data):
-    '''Save data to drive as a pickled dictionary'''
-
-    with open("data.dict", 'wb') as filename:
-        pickle.dump(data, filename)
 
 def get_data_initial(prefetch=None):
     '''Downloads data from database. Pickles resulting fetched data as a dictionary keyed by hyperelliptic classification; (factoring, slope type), field. 
@@ -103,6 +121,12 @@ def get_data():
     with open("data.dict", 'rb') as filename:
         return(pickle.load(filename))
 
+def pickle_data(data):
+    '''Save data to drive as a pickled dictionary'''
+
+    with open("data.dict", 'wb') as filename:
+        pickle.dump(data, filename)
+
 def write_data(data, excluded={}):
     '''Write data as txt files in 'new' folder in working directory. Overwrites all existing files.'''
     if None in data:
@@ -124,6 +148,323 @@ def write_data(data, excluded={}):
                 with open(filename, "w") as F:
                     for poly in polys:
                         F.write(f"{poly[1]}, {poly[0]}, {poly[2]} \n")
+
+def our_jacobi_rules(poly, slopes, q, exps, coeffs):
+    '''Based on input parameters, returns a dictionary containing evaluations of all relevant rules.'''
+    p = trial_division(q)
+
+    coeffs4 = tuple([c % 4 for c in coeffs])
+    poly2 = tuple([c % 2 for c in poly[1:4]])
+    sorted_coeffs = tuple(sorted(coeffs))
+    if len(exps) == 3:
+        a,b,c = sorted_coeffs
+    else:
+        a, b, c = coeffs
+
+    p_rank = p_rank_dict[slopes]
+    
+    rules = {}
+
+    vq = log(q, p)
+
+    iso_class = IsogenyClass(poly=poly)
+
+    if p == 2:
+        # Theorem 1
+        rules['0.N.N.0'] = poly2 in ((0, 1, 1), (1, 0, 1), (1, 1, 0))
+
+        # Prop 1
+        rules['0.N.0.0'] = slopes == 4
+
+        rules['0.2.2.0'] = len(exps) == 2 and a == 0 and c in (2*q - 3, 2*q + 3)
+        # rules['0.3.3.0'] = p_rank == 3 and len(exps) == 3 and a == b and b == c and a%2 == 1 and abs(a) > ceil(q/4)
+
+        rules['0.3.1.0'] = p_rank == 1 and len(exps) == 3 and (c - a in (1, sqrt(p*q) or (b-a, c-b) in ((sqrt(p*q), 1), (1, sqrt(p*q)))))
+
+        rules['0.3.2.0'] = p_rank == 2 and len(exps) == 3 and a + 5 > c
+        rules['0.3.2.1'] = p_rank == 2 and len(exps) == 3 and a == -p*vq and c > b and c < p*vq - 1
+        rules['0.3.2.2'] = p_rank == 2 and len(exps) == 3 and c == p*vq and b > a and a > -p*vq + 1
+        
+
+    elif p != 2:
+        # Costa Theorem 2.8
+        rules['1.N.N.0'] = poly2[1:] == (0, 1)
+
+        # rules['1.1.0.0'] = is_prime(q) and p != 3 and p_rank == 0 and len(exps) == 1 and ((b == 0 and c % q == 0 and (c/q)%2 == 1) or b == 2*q)
+
+        rules['1.1.0.0'] = is_prime(q) and q % 3 == 1 and p_rank == 0 and len(exps) == 1 and slopes == 1 and b > 2*q and b%q == 0 and (b/q) % 2 == 1
+
+        rules['1.1.0.1'] = q == p**2 and p_rank == 0 and len(exps) == 1 and ((b == 0 and c%q == 0 and (c/q)%2 == 1) or (b in (q, 2*q) and abs(a) == 2*p) )#or (b > 2*q and c % q == 0 and (c/q) % 2 == 1))
+
+        # 2x4 splitting, slope type 2, prime field != 2, (1, 0, 2) mod 4 or (3, 0, 2) mod 4 pattern
+        rules['1.2.1.0'] = is_prime(q) and p_rank == 1 and len(exps) == 2 and coeffs4 in ((1, 0, 2), (3, 0, 2))
+
+        rules['1.2.2.0'] = is_prime(q) and p_rank == 2 and len(exps) == 2 and b % 2 == 1 and c in (2*q - 2, 2*q - 3, 2*q + 2, 2*q + 3)
+
+        rules['1.3.0.0'] = False
+        if p_rank == 0 and len(exps) == 3:
+            for k in range(1, vq):
+                rules['1.3.0.0'] |= (b, c) == (3*k, 3*vq)
+                rules['1.3.0.0'] |= (a, b) == (-3*k, -3*vq)
+                rules['1.3.0.0'] |= b == 0 and (a, c) in ((-3, 3*vq), (-3*vq, 3))
+
+        # rules['1.3.1.0'] = p_rank == 1 and len(exps) == 3 and (sorted_coeffs == (-3, 0, 0) or sorted_coeffs == (0, 0, 3))
+
+        rules['1.3.1.0'] = is_square(q) and p_rank == 1 and len(exps) == 3 and abs(poly[1]) <= q**0.5 and poly[1]%2 == 1
+        # rules['1.3.1.4'] = is_prime(q) and p_rank == 3 and len(exps) == 3 and abs(poly[1]) <= q**0.5 and poly[1]%2 == 1
+
+        # rules['1.3.1.2'] = q % 4 == 3 and is_prime(q) and p_rank == 1 and len(exps) == 3 and sorted_coeffs in ((-2, 0, 0), (0, 0, 2))
+        rules['1.3.1.1'] = q % 4 == 3 and q > 3 and is_prime(q) and p_rank == 1 and len(exps) == 3 and abs(a) <= 3 and abs(c) <= 3
+
+        # rules['1.3.1.3'] = q % 4 == 1 and is_prime(q) and p_rank == 1 and len(exps) == 3 and (abs(a) in (1, 3) or abs(c) in (1, 3))
+
+        forbidden = [(-4, -1, 0), (0, 1, 4), (-4, -3, 0), (0, 3, 4), (-3, -2, 0), (-2, 0, 1), (-1, 0, 2), (0, 2, 3), ]
+        rules['1.3.2.0'] = len(exps) == 3 and (a, b, c) in forbidden # p_rank == 2
+
+        rules['1.3.2.1'] = p != q and p_rank == 2 and len(exps) == 3 and ((c == vq*p and (b - a in (1, 3))) or (a == -vq*p and (c - b in (1, 3))))
+
+
+        rules['1.3.2.2'] = q % 4 == 1 and p_rank == 2 and len(exps) == 3 and (a, b, c) in ((-2, -2, 0), (0, 2, 2))
+
+        # rules['1.3.3.0'] = p_rank == 3 and len(exps) == 3 and a**2 == b**2 and b**2 == c**2 and a%2 == 1
+
+        # rules['1.3.3.1'] = len(exps) == 3 and a == b and b == c and abs(a) > ceil(q/3)
+
+        rules['1.3.N.0'] = len(exps) == 3 and a**2 + b**2 + c**2 == 9
+        
+        # rules['0.3.2.exp'] = p != q and p_rank == 2 and len(exps) == 3 and a + 5 > c # THESE ARE WRONG BUT MAYBE CLOSE
+        # rules['0.3.2.exp1'] = p != q and p_rank == 2 and len(exps) == 3 and a == -p*vq and c > b # THESE ARE WRONG BUT MAYBE CLOSE
+        # rules['0.3.2.exp2'] = p != q and p_rank == 2 and len(exps) == 3 and c == p*vq and b > a # THESE ARE WRONG BUT MAYBE CLOSE
+
+    rules['N.N.N.1'] = False
+    f = real_weil(poly, q).factor()
+    if len(f) == 2:
+        if abs(f[0][0].resultant(f[1][0])) == 1:
+            rules['N.N.N.1'] = True
+    if len(f) == 3:
+        if abs(f[0][0].resultant(f[1][0]*f[2][0])) == 1:
+            rules['N.N.N.1'] = True
+        if abs(f[1][0].resultant(f[0][0]*f[2][0])) == 1:
+            rules['N.N.N.1'] = True
+        if abs(f[2][0].resultant(f[0][0]*f[1][0])) == 1:
+            rules['N.N.N.1'] = True
+
+    rules['N.N.N.0'] = iso_class._nojac_pointcounts()
+
+    rules['N.N.N.2'] = iso_class._nojac_howe_lauter()
+
+    rules['N.1.N.0'] = len(exps) == 1 and c < 0 and is_prime(-c) and b**3 + c == -q**2
+
+    # 2x2x2 splitting of the form (x**2 - tx + q)**3, conditions on discriminant t**2 - 4q
+    obstructed_discriminants = [-99, -91, -83, -75, -67, -59, -51, -43, -39, -35, -27, -23, -20, -19, -15, -12, -11, -8, -7, -4, -3, 0]
+    rules['N.3.N.0'] = len(exps) == 3 and a==b and b==c and (a**2 - 4*q in obstructed_discriminants)
+
+    # 2x2x2 splitting, if two are equal and third is not (so abs(a - b) + abs(b - c) + abs(a - c) == 2)
+    # rules['N.3.N.1'] = len(exps) == 3 and abs(a - b) + abs(b - c) + abs(a - c) == 2
+
+    # 2x2x2 splitting with parameters a >= b >= c, checks that a - b = b - c = 1
+    # rules['N.3.N.2'] = len(exps) == 3 and c - b == 1 and b - a == 1
+
+    rules['N.3.0.0'] = p in (2, 3, 5) and len(exps) == 3 and p_rank == 0 and abs(a) != p*vq and abs(c) != p*vq
+
+    rules['N.3.0.1'] = p_rank == 0 and len(exps) == 3 and ((a, b) == (-p*vq, -p*vq) or (b, c) == (p*vq, p*vq))
+
+    rules['N.2.0.0'] = is_prime(q) and p_rank == 0 and q % 8 != 7 and len(exps) == 2 and (a,b,c) == (0, 0, -2*q)
+
+
+    # 2x2x2 splitting, p-rank=0, for q=2,3,4,9 if a**2 = b**2 = c**2 and p | a**2
+    # rules['S.3.0.1'] = p in {2, 3, 5} and p_rank == 0 and len(exps) == 3 and a**2 == b**2 and b**2 == c**2
+    
+    return rules
+
+def sort_data(data=None, source=False, dest='undetected'):
+    '''Sort data according to rules found in our_jacobi_rules. Original and destination data sets can be set with optional arguments.'''
+    if not data:
+        data = get_data()
+    
+    data[dest].clear()
+    data["false positives"].clear()
+    counts = {dest: defaultdict(int),
+              source: defaultdict(int),
+              "false positives": defaultdict(int),
+              True: defaultdict(int)}
+    
+    for (exps, slope), D in data[source].items():
+        print(exps, slope)
+        for q, polys in D.items():
+            for poly in polys:
+                counts[source][(exps, slope)] += 1
+                guess = our_jacobi_rules(poly[0], slope, q, exps, poly[1])
+                if not (True in guess.values()):
+                    counts[dest][(exps, slope)] += 1
+                    data[dest][(exps, slope)][q].append(poly)
+    
+    print('False done')
+
+    for (exps, slope), D in data[True].items():
+        print(exps, slope)
+        for q, polys in D.items():
+            for poly in polys:
+                counts[True][(exps, slope)] += 1
+                guess = our_jacobi_rules(poly[0], slope, q, exps, poly[1])
+                if True in guess.values():
+                    counts['false positives'][(exps, slope)] += 1
+                    data['false positives'][(exps, slope)][q].append(poly)
+    
+    fp = sum(counts['false positives'].values())
+    true = sum(counts[True].values())
+    print(f"Percent false positive: {fp}/{true} = {float(fp/true)}")
+    undetected = sum(counts[dest].values())
+    false = sum(counts[source].values())
+    print(f"Percent negatives undetected: {undetected}/{false} = {float(undetected/false)}")
+
+    pickle_data(data)
+
+def known_jacobi_sort(data=None):
+    '''Iterates through pre-sorted data ('undetected' tag) and applies the known jacobi criteria found in isogeny_classes.sage. 
+    Stores data in 'unknown' and pickles result'''
+    if not data:
+        data = get_data()
+
+    data["unknown"].clear()
+    count = 0
+    for (exps, slope), D in data['undetected'].items():
+        print(exps, slope)
+        for q, polys in D.items():
+            for poly in polys:
+                iso_class = IsogenyClass(label = poly[2])
+                point_counts_restriction = False
+                q = iso_class.q
+                # for n in range(1, len(iso_class.curve_counts)):
+                #     cnt = iso_class.curve_counts[n]
+                #     if cnt > 2*(q**(n+1) + 1) or cnt < 0:
+                #         point_counts_restriction = True
+                #     for m in range(2*n, len(iso_class.curve_counts), n):
+                #         if iso_class.curve_counts[m] < cnt:
+                #             point_counts_restriction = True
+                #             continue
+                if iso_class.has_jacobian == 0 and not point_counts_restriction:
+                    data["unknown"][(exps, slope)][q].append(poly)
+                    count += 1
+                
+    print(count)
+    pickle_data(data)
+
+def real_weil(poly, q):
+    a, b, c = poly[1:4]
+    c1, c2, c3 = a, b - 3*q, c - 2*q*a
+    return RZ([c3, c2, c1, 1])
+
+def print_statistics(data=None, table=False):
+    '''Print coarse statsitics on how many polynomials we have classified in each category. 
+    Optional table option to print a latex table with computed data.'''
+
+    color = lambda ratio: (255*(ratio)**0.5, 255 - 255*(ratio)**0.5, 0)
+
+    if not data:
+        data = get_data()
+
+    counts = defaultdict(lambda: defaultdict(int))
+    headers = ['(Factoring, $p$-rank)', 'Undetected by our rules', 'Undetected by all rules']
+    array = defaultdict(list)
+
+    for have_hyp, D1 in data.items():
+        for (exps, slope), D2 in D1.items():
+            for q, polys in D2.items():
+                counts[have_hyp][(exps, slope)] += len(polys)
+
+    for (exps, slope) in sorted(counts[False], key=lambda x:(x[0], p_rank_dict[x[1]])):
+        if slope == 1:
+            continue
+        if slope == 4:
+            counts[False][(exps, slope)] += counts[False][(exps, 1)]
+            counts[False][exps, 1] = 0
+            counts['undetected'][(exps, slope)] += counts['undetected'][(exps, 1)]
+            counts['undetected'][(exps, 1)] = 0
+            counts['unknown'][(exps, slope)] += counts['unknown'][(exps, 1)]
+            counts['unknown'][(exps, 1)] = 0
+            counts['norule'][(exps, slope)] += counts['norule'][(exps, 1)]
+            counts['norule'][(exps, 1)] = 0
+        print(f"factoring pattern: {exps}, p-rank: {p_rank_dict[slope]}")
+        undetected = counts['undetected'][(exps, slope)]
+        false = counts[False][(exps, slope)]# + 1e-10
+        cprint(f"\t Percent negatives undetected by our rules: {undetected}/{false} = {float(undetected/false)}", color(undetected/false))
+        unknown = counts['unknown'][(exps, slope)]
+        # cprint(f"\t Percent negatives undetected by our rules + known obstructions: {unknown}/{false} = {float(unknown/false)}", color(unknown/false))
+        # norule = counts['norule'][(exps, slope)]
+        # cprint(f"\t Percent negatives undetected by our rules + known obstructions: {norule}/{false} = {float(norule/false)}", color(norule/false))
+        array[exps, slope] = [(len(exps), p_rank_dict[slope]), f'{undetected}/{false} = {float(undetected/false):.4f}']#, f'{unknown}/{false} = {float(unknown/false):.4f}']
+
+    undetected = sum(counts['undetected'].values())
+    false = sum(counts[False].values())
+    unknown = sum(counts['unknown'].values())
+    # norule = sum(counts['norule'].values())
+    print()
+    cprint(f"Percent negatives undetected: {undetected}/{false} = {float(undetected/false)}", color(undetected/false))
+    # cprint(f"Percent negatives undetected: {unknown}/{false} = {float(unknown/false)}", color(unknown/false))
+    array['last'] = [r'\textbf{Total}', f"{undetected}/{false} = {float(undetected/false):.4f}"]#, f"{unknown}/{false} = {float(unknown/false):.4f}"]
+    # cprint(f"Percent negatives undetected: {norule}/{false} = {float(norule/false)}", color(norule/false))
+    if table:
+        table = Table([array[l] for l in array], headers)
+        print(table)
+
+def print_statistics_by_rule(data=None, table=False):
+    '''Print number of hits and unique hits per rule. Optional table option to print a latex table containing the results.'''
+    if not data:
+        data = get_data()
+    
+    counts = defaultdict(set)
+
+    headers = ['Rule', 'Number of hits', 'Number of unique hits']
+    array = dict()
+
+    for (exps, slope), D in data[False].items():
+        for q, polys in D.items():
+            for poly in polys:
+                r = our_jacobi_rules(poly[0], slope, q, exps, poly[1])
+                for rule in r:
+                    if r[rule] == True:
+                        counts[rule].add(poly[2])
+    
+    for rule in sorted(counts.keys(), key=lambda x:str(x)):
+        other_hits = set()
+        for r in counts:
+            if r != rule:
+                other_hits = other_hits.union(counts[r])
+        print(f"Rule: {rule}, Number of hits: {len(counts[rule])}, Number of unique hits: {len(counts[rule] - other_hits.intersection(counts[rule]))}")
+        array[rule] = [r'\textbf{' + rule + '}', len(counts[rule]), len(counts[rule] - other_hits.intersection(counts[rule]))]
+
+    if table:
+        table = Table([array[l] for l in array], headers)
+        print(table)
+
+def print_statistics_by_rule_and_type(data=None, table=False):
+    '''Split by polynominal type, print the relevant rules and how many hits (total + unique) they get. 
+    Optional table option to print a latex table with the information.'''
+    if not data:
+        data = get_data()
+
+    headers = ['Type', 'Rule', 'Hits', 'Unique hits']
+    table = Table([], headers)
+
+    for (exps, slope), D in data[False].items():
+        counts = defaultdict(set)
+        for q, polys in D.items():
+            for poly in polys:
+                r = our_jacobi_rules(poly[0], slope, q, exps, poly[1])
+                for rule in r:
+                    if r[rule] == True:
+                        counts[rule].add(poly[2])
+    
+        for rule in sorted(counts.keys(), key=lambda x:str(x)):
+            other_hits = set()
+            for r in counts:
+                if r != rule:
+                    other_hits = other_hits.union(counts[r])
+            unique_hits = len(counts[rule] - other_hits.intersection(counts[rule]))
+            print(f"Type: {exps}, {p_rank_dict[slope]}, Rule: {rule}, Number of hits: {len(counts[rule])}, Number of unique hits: {unique_hits}")
+            table.add([f"({len(exps)}, {p_rank_dict[slope]})",  rule, len(counts[rule]), unique_hits])
+    print(table)
 
 def plot(data, factoring, slope_type, q, factored=True):
     '''Plots coefficients in 3d. Plots two datasets set by positive_key and negative_key. q can either specify the cardinality of the field or special values according to
@@ -223,293 +564,8 @@ def plot(data, factoring, slope_type, q, factored=True):
 
     plt.show()
 
-def our_jacobi_rules(poly, slopes, q, exps, coeffs):
-    '''Based on input parameters, returns a dictionary containing evaluations of all relevant rules.'''
-    p = trial_division(q)
-
-    coeffs4 = tuple([c % 4 for c in coeffs])
-    poly2 = tuple([c % 2 for c in poly[1:4]])
-    sorted_coeffs = tuple(sorted(coeffs))
-    if len(exps) == 3:
-        a,b,c = sorted_coeffs
-    else:
-        a, b, c = coeffs
-
-    p_rank = p_rank_dict[slopes]
-    
-    rules = {}
-
-    vq = log(q, p)
-
-    if p == 2:
-        # Theorem 1
-        rules['0.N.N.0'] = poly2 in ((0, 1, 1), (1, 0, 1), (1, 1, 0))
-
-        # Prop 1
-        rules['0.N.0.0'] = slopes == 4
-
-        rules['0.2.2.0'] = len(exps) == 2 and a == 0 and c in (2*q - 3, 2*q + 3)
-        # rules['0.3.3.0'] = p_rank == 3 and len(exps) == 3 and a == b and b == c and a%2 == 1 and abs(a) > ceil(q/4)
-
-        rules['0.3.1.0'] = p_rank == 1 and len(exps) == 3 and (c - a in (1, sqrt(p*q) or (b-a, c-b) in ((sqrt(p*q), 1), (1, sqrt(p*q)))))
-
-        rules['0.3.2.0'] = p_rank == 2 and len(exps) == 3 and a + 5 > c
-        rules['0.3.2.1'] = p_rank == 2 and len(exps) == 3 and a == -p*vq and c > b and c < p*vq - 1
-        rules['0.3.2.2'] = p_rank == 2 and len(exps) == 3 and c == p*vq and b > a and a > -(p*vq - 1)
-
-
-    elif p != 2:
-        # Costa Theorem 2.8
-        rules['1.N.N.0'] = poly2[1:] == (0, 1)
-
-        # rules['1.1.0.0'] = is_prime(q) and p != 3 and p_rank == 0 and len(exps) == 1 and ((b == 0 and c % q == 0 and (c/q)%2 == 1) or b == 2*q)
-
-        rules['1.1.S.1'] = is_prime(q) and q % 3 == 1 and p_rank == 0 and len(exps) == 1 and slopes == 1 and b > 2*q and b%q == 0 and (b/q) % 2 == 1
-
-        rules['1.1.0.2'] = q == p**2 and p_rank == 0 and len(exps) == 1 and ((b == 0 and c%q == 0 and (c/q)%2 == 1) or (b in (q, 2*q) and abs(a) == 2*p and b == 2*q) or (b > 2*q and b % q == 0 and (b/c) % 2 == 1))
-
-        # 2x4 splitting, slope type 2, prime field != 2, (1, 0, 2) mod 4 or (3, 0, 2) mod 4 pattern
-        rules['1.2.1.0'] = is_prime(q) and p_rank == 1 and len(exps) == 2 and coeffs4 in ((1, 0, 2), (3, 0, 2))
-
-        rules['1.2.2.0'] = is_prime(q) and p_rank == 2 and len(exps) == 2 and b % 2 == 1 and c in (2*q - 2, 2*q - 3, 2*q + 2, 2*q + 3)
-
-        rules['1.3.0.0'] = False
-        if p_rank == 0 and len(exps) == 3:
-            for k in range(1, vq):
-                rules['1.3.0.0'] |= (b, c) == (3*k, 3*vq)
-                rules['1.3.0.0'] |= (a, b) == (-3*k, -3*vq)
-                rules['1.3.0.0'] |= b == 0 and (a, c) in ((-3, 3*vq), (-3*vq, 3))
-
-        # rules['1.3.1.0'] = p_rank == 1 and len(exps) == 3 and (sorted_coeffs == (-3, 0, 0) or sorted_coeffs == (0, 0, 3))
-
-        rules['1.3.1.1'] = is_square(q) and p_rank == 1 and len(exps) == 3 and abs(poly[1]) <= q**0.5 and poly[1]%2 == 1
-        # rules['1.3.1.4'] = is_prime(q) and p_rank == 3 and len(exps) == 3 and abs(poly[1]) <= q**0.5 and poly[1]%2 == 1
-
-        # rules['1.3.1.2'] = q % 4 == 3 and is_prime(q) and p_rank == 1 and len(exps) == 3 and sorted_coeffs in ((-2, 0, 0), (0, 0, 2))
-        rules['1.3.1.2'] = q % 4 == 3 and q > 3 and is_prime(q) and p_rank == 1 and len(exps) == 3 and abs(a) <= 3 and abs(c) <= 3
-
-        rules['1.3.1.3'] = q % 4 == 1 and is_prime(q) and p_rank == 1 and len(exps) == 3 and (abs(a) in (1, 3) or abs(c) in (1, 3))
-
-        forbidden = [(-4, -1, 0), (0, 1, 4), (-4, -3, 0), (0, 3, 4), (-3, -2, 0), (-2, 0, 1), (-1, 0, 2), (0, 2, 3), ]
-        rules['1.3.2.0'] = len(exps) == 3 and (a, b, c) in forbidden
-
-        rules['1.3.2.3'] = p != q and p_rank == 2 and len(exps) == 3 and ((c == vq*p and (b - a in (1, 3))) or (a == -vq*p and (c - b in (1, 3))))
-
-
-        rules['1.3.2.1'] = q % 4 == 1 and p_rank == 2 and len(exps) == 3 and (a, b, c) in ((-2, -2, 0), (0, 2, 2))
-
-        # rules['1.3.3.0'] = p_rank == 3 and len(exps) == 3 and a**2 == b**2 and b**2 == c**2 and a%2 == 1
-
-        rules['1.3.3.1'] = len(exps) == 3 and a == b and b == c and abs(a) > ceil(q/3)
-
-        rules['1.3.3.2'] = len(exps) == 3 and a**2 + b**2 + c**2 == 9
-        
-        # rules['0.3.2.exp'] = p != q and p_rank == 2 and len(exps) == 3 and a + 5 > c # THESE ARE WRONG BUT MAYBE CLOSE
-        # rules['0.3.2.exp1'] = p != q and p_rank == 2 and len(exps) == 3 and a == -p*vq and c > b # THESE ARE WRONG BUT MAYBE CLOSE
-        # rules['0.3.2.exp2'] = p != q and p_rank == 2 and len(exps) == 3 and c == p*vq and b > a # THESE ARE WRONG BUT MAYBE CLOSE
-
-
-    rules['N.1.N.0'] = c < 0 and is_prime(-c) and b**3 + c == -q**2
-
-    # 2x2x2 splitting of the form (x**2 - tx + q)**3, conditions on discriminant t**2 - 4q
-    obstructed_discriminants = [-99, -91, -83, -75, -67, -59, -51, -43, -39, -35, -27, -23, -20, -19, -15, -12, -11, -8, -7, -4, -3, 0]
-    rules['N.3.N.0'] = len(exps) == 3 and a==b and b==c and (a**2 - 4*q in obstructed_discriminants)
-
-    # 2x2x2 splitting, if two are equal and third is not (so abs(a - b) + abs(b - c) + abs(a - c) == 2)
-    rules['N.3.N.1'] = len(exps) == 3 and abs(a - b) + abs(b - c) + abs(a - c) == 2
-
-    # 2x2x2 splitting with parameters a >= b >= c, checks that a - b = b - c = 1
-    rules['N.3.N.2'] = len(exps) == 3 and c - b == 1 and b - a == 1
-
-    rules['N.3.0.1'] = p_rank == 0 and len(exps) == 3 and ((a, b) == (-p*vq, -p*vq) or (b, c) == (p*vq, p*vq))
-
-    rules['S.2.0.0'] = is_prime(q) and q % 8 != 7 and len(exps) == 2 and (a,b,c) == (0, 0, -2*q)
-
-    rules['S.3.0.0'] = p in (2, 3, 5) and len(exps) == 3 and p_rank == 0 and abs(a) != p*vq and abs(c) != p*vq
-
-    # 2x2x2 splitting, p-rank=0, for q=2,3,4,9 if a**2 = b**2 = c**2 and p | a**2
-    # rules['S.3.0.1'] = p in {2, 3, 5} and p_rank == 0 and len(exps) == 3 and a**2 == b**2 and b**2 == c**2
-    
-    return rules
-
-def sort_data(data=None, source=False, dest='undetected'):
-    '''Sort data according to rules found in our_jacobi_rules. Original and destination data sets can be set with optional arguments.'''
-    if not data:
-        data = get_data()
-    
-    data[dest].clear()
-    data["false positives"].clear()
-    counts = {dest: defaultdict(int),
-              source: defaultdict(int),
-              "false positives": defaultdict(int),
-              True: defaultdict(int)}
-    
-    for (exps, slope), D in data[source].items():
-        for q, polys in D.items():
-            for poly in polys:
-                counts[source][(exps, slope)] += 1
-                guess = our_jacobi_rules(poly[0], slope, q, exps, poly[1])
-                if not (True in guess.values()):
-                    counts[dest][(exps, slope)] += 1
-                    data[dest][(exps, slope)][q].append(poly)
-    
-    for (exps, slope), D in data[True].items():
-        for q, polys in D.items():
-            for poly in polys:
-                counts[True][(exps, slope)] += 1
-                guess = our_jacobi_rules(poly[0], slope, q, exps, poly[1])
-                if True in guess.values():
-                    counts['false positives'][(exps, slope)] += 1
-                    data['false positives'][(exps, slope)][q].append(poly)
-    
-    fp = sum(counts['false positives'].values())
-    true = sum(counts[True].values())
-    print(f"Percent false positive: {fp}/{true} = {float(fp/true)}")
-    undetected = sum(counts[dest].values())
-    false = sum(counts[source].values())
-    print(f"Percent negatives undetected: {undetected}/{false} = {float(undetected/false)}")
-
-    pickle_data(data)
-
-def known_jacobi_sort(data=None):
-    '''Iterates through pre-sorted data ('undetected' tag) and applies the known jacobi criteria found in isogeny_classes.sage. 
-    Stores data in 'unknown' and pickles result'''
-    if not data:
-        data = get_data()
-
-    data["unknown"].clear()
-    count = 0
-    for (exps, slope), D in data['undetected'].items():
-        print(exps, slope)
-        for q, polys in D.items():
-            for poly in polys:
-                iso_class = IsogenyClass(label = poly[2])
-                point_counts_restriction = False
-                q = iso_class.q
-                for n in range(len(iso_class.curve_counts)):
-                    if iso_class.curve_counts[n] > 2*(q**(n+1) + 1):
-                        point_counts_restriction = True
-                if iso_class.has_jacobian == 0 and not point_counts_restriction:
-                    data["unknown"][(exps, slope)][q].append(poly)
-                    count += 1
-                
-    print(count)
-    pickle_data(data)
-
-def print_statistics(data=None, table=False):
-    '''Print coarse statsitics on how many polynomials we have classified in each category. 
-    Optional table option to print a latex table with computed data.'''
-
-    color = lambda ratio: (255*(ratio)**0.5, 255 - 255*(ratio)**0.5, 0)
-
-    if not data:
-        data = get_data()
-
-    counts = defaultdict(lambda: defaultdict(int))
-    headers = ['(Factoring, $p$-rank)', 'Undetected by our rules', 'Undetected by all rules']
-    array = defaultdict(list)
-
-    for have_hyp, D1 in data.items():
-        for (exps, slope), D2 in D1.items():
-            for q, polys in D2.items():
-                counts[have_hyp][(exps, slope)] += len(polys)
-
-    for (exps, slope) in sorted(counts[False], key=lambda x:(x[0], p_rank_dict[x[1]])):
-        if slope == 1:
-            continue
-        if slope == 4:
-            counts[False][(exps, slope)] += counts[False][(exps, 1)]
-            counts[False][exps, 1] = 0
-            counts['undetected'][(exps, slope)] += counts['undetected'][(exps, 1)]
-            counts['undetected'][(exps, 1)] = 0
-            counts['unknown'][(exps, slope)] += counts['unknown'][(exps, 1)]
-            counts['unknown'][(exps, 1)] = 0
-            counts['norule'][(exps, slope)] += counts['norule'][(exps, 1)]
-            counts['norule'][(exps, 1)] = 0
-        print(f"factoring pattern: {exps}, p-rank: {p_rank_dict[slope]}")
-        undetected = counts['undetected'][(exps, slope)]
-        false = counts[False][(exps, slope)] + 1e-10
-        cprint(f"\t Percent negatives undetected by our rules: {undetected}/{false} = {float(undetected/false)}", color(undetected/false))
-        unknown = counts['unknown'][(exps, slope)]
-        cprint(f"\t Percent negatives undetected by our rules + known obstructions: {unknown}/{false} = {float(unknown/false)}", color(unknown/false))
-        # norule = counts['norule'][(exps, slope)]
-        # cprint(f"\t Percent negatives undetected by our rules + known obstructions: {norule}/{false} = {float(norule/false)}", color(norule/false))
-        array[exps, slope] = [(len(exps), p_rank_dict[slope]), f'{undetected}/{false} = {float(undetected/false):.4f}', f'{unknown}/{false} = {float(unknown/false):.4f}']
-
-    undetected = sum(counts['undetected'].values())
-    false = sum(counts[False].values())
-    unknown = sum(counts['unknown'].values())
-    # norule = sum(counts['norule'].values())
-    print()
-    cprint(f"Percent negatives undetected: {undetected}/{false} = {float(undetected/false)}", color(undetected/false))
-    cprint(f"Percent negatives undetected: {unknown}/{false} = {float(unknown/false)}", color(unknown/false))
-    array['last'] = [r'\textbf{Total}', f"{undetected}/{false} = {float(undetected/false):.4f}", f"{unknown}/{false} = {float(unknown/false):.4f}"]
-    # cprint(f"Percent negatives undetected: {norule}/{false} = {float(norule/false)}", color(norule/false))
-    if table:
-        table = Table([array[l] for l in array], headers)
-        print(table)
-
-def print_statistics_by_rule(data=None, table=False):
-    '''Print number of hits and unique hits per rule. Optional table option to print a latex table containing the results.'''
-    if not data:
-        data = get_data()
-    
-    counts = defaultdict(set)
-
-    headers = ['Rule', 'Number of hits', 'Number of unique hits']
-    array = dict()
-
-    for (exps, slope), D in data[False].items():
-        for q, polys in D.items():
-            for poly in polys:
-                r = our_jacobi_rules(poly[0], slope, q, exps, poly[1])
-                for rule in r:
-                    if r[rule] == True:
-                        counts[rule].add(poly[2])
-    
-    for rule in sorted(counts.keys(), key=lambda x:str(x)):
-        other_hits = set()
-        for r in counts:
-            if r != rule:
-                other_hits = other_hits.union(counts[r])
-        print(f"Rule: {rule}, Number of hits: {len(counts[rule])}, Number of unique hits: {len(counts[rule] - other_hits.intersection(counts[rule]))}")
-        array[rule] = [r'\textbf{' + rule + '}', len(counts[rule]), len(counts[rule] - other_hits.intersection(counts[rule]))]
-
-    if table:
-        table = Table([array[l] for l in array], headers)
-        print(table)
-
-def print_statistics_by_rule_and_type(data=None, table=False):
-    '''Split by polynominal type, print the relevant rules and how many hits (total + unique) they get. 
-    Optional table option to print a latex table with the information.'''
-    if not data:
-        data = get_data()
-
-    headers = ['Type', 'Rule', 'Hits', 'Unique hits']
-    table = Table([], headers)
-
-    for (exps, slope), D in data[False].items():
-        counts = defaultdict(set)
-        for q, polys in D.items():
-            for poly in polys:
-                r = our_jacobi_rules(poly[0], slope, q, exps, poly[1])
-                for rule in r:
-                    if r[rule] == True:
-                        counts[rule].add(poly[2])
-    
-        for rule in sorted(counts.keys(), key=lambda x:str(x)):
-            other_hits = set()
-            for r in counts:
-                if r != rule:
-                    other_hits = other_hits.union(counts[r])
-            unique_hits = len(counts[rule] - other_hits.intersection(counts[rule]))
-            print(f"Type: {exps}, {p_rank_dict[slope]}, Rule: {rule}, Number of hits: {len(counts[rule])}, Number of unique hits: {unique_hits}")
-            table.add([f"({len(exps)}, {p_rank_dict[slope]})",  rule, len(counts[rule]), unique_hits])
-    print(table)
-
-def mod_2_count(data):
+def mod_2_count(data, q):
     '''Count the number of polynomials satisfying given conditions modulo 2.'''
-    q = 16
     counts = defaultdict(int)
     counts_t = 0
     counts_f = 0
@@ -528,8 +584,26 @@ def mod_2_count(data):
                                         counts_t += 1
                                     else:
                                         counts_f += 1
-    print(float(counts_f/(counts_f + counts_t)))
-    return dict(counts)
+    return(float(counts_f/(counts_f + counts_t))), dict(counts), counts_f + counts_t
+
+def graph_mod_2_cond_even(data):
+    x_axis = [2,4,8,16]
+
+    #series_rule_applies = [(mod_2_count(data, q)[1][(0, 1, 1)] + mod_2_count(data, q)[1][(1, 0, 1)])/mod_2_count(data, q)[2] for q in [2,4,8,16]]
+    series_false = [mod_2_count(data, q)[0] for q in [2,4,8,16]]
+
+    plt.plot(x_axis, [0.5, 0.5, 0.5, 0.5], 'r--', x_axis, series_false, 'b^')
+    
+    plt.show()
+
+def graph_mod_2_cond_odd(data):
+    x_axis = [3, 5, 7, 9, 11, 13, 17, 19, 23, 25]
+    #series_rule_applies = [(mod_2_count(data, q)[1][(0, 1, 1)] + mod_2_count(data, q)[1][(1, 0, 1)])/mod_2_count(data, q)[2] for q in x_axis]
+    series_false = [mod_2_count(data, q)[0] for q in x_axis]
+
+    plt.plot(x_axis, [0.25]*len(x_axis), 'r--', x_axis, series_false, 'b^')
+    
+    plt.show()
 
 class Table:
     '''Helper class to convert an array into a latex table.'''

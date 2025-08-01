@@ -3111,13 +3111,14 @@ class IsogenyClass(PGSaver):
                     return -1r
                 else:
                     return 1r
-        elif (self.has_principal_polarization == -1 or
+        elif (# self.has_principal_polarization == -1 or
               self._nojac_pointcounts() or
-              self._nojac_stohr_voloch() or
-              self._nojac_beauville_zaytsev() or
-              self._nojac_korchmaros_torres() or
+            #   self._nojac_stohr_voloch() or
+            #  self._nojac_beauville_zaytsev() or
+            #   self._nojac_korchmaros_torres() or
               self._nojac_howe_lauter() or
-              self._nojac_serre()):
+            #  self._nojac_serre()):
+            False):
             return -1r
         return 0r
 
@@ -3133,7 +3134,7 @@ class IsogenyClass(PGSaver):
         counts = [None] + self.curve_counts # counts[m] = count over F_{q^m}
         for m in range(1, len(counts)):
             cnt = counts[m]
-            if cnt < 0:
+            if cnt < 0 or cnt > 2*self.q**m + 2:
                 return True
             for n in range(2*m, len(counts), m):
                 ext_cnt = counts[n]
