@@ -1,12 +1,18 @@
 from sage.misc.cython import cython_import_all
+import os
 
 gen_hyp = cython_import_all("gen_hyp.spyx", globals())
 import os
-n = 5
-final_hyp = g3_hyp_even_5(n)
+n = 2
+final_hyp = generate_hyperelliptics_char2(n)
 print(sum(len(x) for x in final_hyp.values()))
 num_blocks = 4096
 files = []
+try:
+    os.rmdir("data"+str(2**n))
+except:
+    pass
+os.mkdir("data"+str(2**n))
 for i in range(num_blocks):
     files.append(open(os.path.join("data"+str(2**n), "block_"+str(i)), 'a+'))
 i = 0
