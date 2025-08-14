@@ -1,3 +1,4 @@
+from ast import expr
 from lmf import db
 from sage.all import PolynomialRing, ZZ
 from collections import defaultdict
@@ -145,20 +146,26 @@ def write_data(data, excluded={}):
                     for poly in polys:
                         F.write(f"{poly[1]}, {poly[0]}, {poly[2]} \n")
 
-def our_jacobi_rules(poly, slopes, q, exps, coeffs):
+def our_jacobi_rules(poly, slope, q, factors, coeffs):
     '''Based on input parameters, returns a dictionary containing evaluations of all relevant rules.'''
     # initialize parameters necessary to apply rules.
     p = char[q]
-    coeffs4 = tuple([c % 4 for c in coeffs])
-    poly2 = tuple([c % 2 for c in poly[1:4]])
-    sorted_coeffs = tuple(sorted(coeffs))
-    if len(exps) == 3:
-        a,b,c = sorted_coeffs
+    p_rank = p_rank_dict[slope]
+    r_poly = _real_weil(poly, q).coefficients(sparse=False)
+    if len(factors) == 1:
+        c, b, a = r_poly[:-1]
+    elif len(factors) == 3:
+        alpha, beta, gamma = coeffs
     else:
-        a, b, c = coeffs
-    p_rank = p_rank_dict[slopes]
-    vq = log(q, p)
+        alpha = coeffs[0]
+        delta = coeffs[1]
+        # easier to convert epsilon from Weil poly -> Real Weil poly than derive from real weil poly
+        epsilon = coeffs[2] - 2*q
+    
+    s,t,u = poly[1:4]
 
+    vq = log(q, p)
+        
     # allows use of pre-implemented functions from https://github.com/roed314/abvar-fq/blob/master/isogeny_classes.sage#L3115
     iso_class = IsogenyClass(poly=poly)
 
@@ -166,69 +173,78 @@ def our_jacobi_rules(poly, slopes, q, exps, coeffs):
     rules = {}
 
     # compute rules. Formatted descriptions of rules can be found in 
-    # "Classifying Weil Polynomials of Jacobians of Genus 3 Hyperelliptic Curves" by Borodin and May
+    # "Classifying Weil Polynomials of Jacobians of Genus 3 Hyperelliptic Curves over Finite Fields" by Borodin and May
 
     if p == 2:
-        rules['0.N.N.0'] = poly2 in ((0, 1, 1), (1, 0, 1), (1, 1, 0))
-        rules['0.N.0.0'] = slopes == 4
-        rules['0.2.2.0'] = len(exps) == 2 and a == 0 and c in (2*q - 3, 2*q + 3)
-        rules['0.3.1.0'] = p_rank == 1 and len(exps) == 3 and (c - a in (1, sqrt(p*q) or (b-a, c-b) in ((sqrt(p*q), 1), (1, sqrt(p*q)))))
-        rules['0.3.2.0'] = p_rank == 2 and len(exps) == 3 and a + 5 > c
-        rules['0.3.2.1'] = p_rank == 2 and len(exps) == 3 and a == -p*vq and c > b and c < p*vq - 1
-        rules['0.3.2.2'] = p_rank == 2 and len(exps) == 3 and c == p*vq and b > a and a > -p*vq + 1
+        rules['0.N.N.0'] = (s%2, t%2, u%2) in ((0, 1, 1), (1, 0, 1), (1, 1, 0))
+        rules['0.N.0.0'] = slope == 4
+
+        if len(factors) == 2:
+            rules['0.2.2.0'] = alpha == 0 and abs(epsilon) == 3
+
+        elif len(factors) == 3:
+            if p_rank == 1:
+                rules['0.3.1.0'] = (gamma - alpha in (1, sqrt(p*q) or (beta-alpha, gamma-beta) in ((sqrt(p*q), 1), (1, sqrt(p*q)))))
+            elif p_rank == 2:
+                rules['0.3.2.0'] = alpha + 5 > gamma
+                rules['0.3.2.1'] = alpha == -p*vq and gamma > beta and gamma < p*vq - 1
+                rules['0.3.2.2'] = gamma == p*vq and beta > alpha and alpha > -p*vq + 1
 
     elif p != 2:
-        rules['1.N.N.0'] = poly2[1:] == (0, 1)
-        rules['1.1.0.0'] = is_prime(q) and q % 3 == 1 and p_rank == 0 and len(exps) == 1 and slopes == 1 and b > 2*q and b%q == 0 and (b/q) % 2 == 1
-        rules['1.1.0.1'] = q == p**2 and p_rank == 0 and len(exps) == 1 and ((b == 0 and c%q == 0 and (c/q)%2 == 1) or (b in (q, 2*q) and abs(a) == 2*p) )#or (b > 2*q and c % q == 0 and (c/q) % 2 == 1))
-        rules['1.2.1.0'] = is_prime(q) and p_rank == 1 and len(exps) == 2 and coeffs4 in ((1, 0, 2), (3, 0, 2))
-        rules['1.2.2.0'] = is_prime(q) and p_rank == 2 and len(exps) == 2 and b % 2 == 1 and c in (2*q - 2, 2*q - 3, 2*q + 2, 2*q + 3)
+        rules['1.N.N.0'] = (t%2, u%2) == (0, 1)
+        if len(factors) == 1:
+            if p_rank == 0:
+                rules['1.1.0.0'] = is_prime(q) and q % 3 == 1 and slope == 1 and b > -q and b%q == 0 and (b/q) % 2 == 0
+                # rules['1.1.0.0'] = is_prime(q) and q % 3 == 1 and p_rank == 0 and len(exps) == 1 and slopes == 1 and b > 2*q and b%q == 0 and (b/q) % 2 == 1
+                rules['1.1.0.1'] = q == p**2 and ((b == -3*q and c%q == 0 and (c/q)%2 == 1) or (b in (-q, -2*q) and abs(a) == 2*p))#or (b > 2*q and c % q == 0 and (c/q) % 2 == 1))
 
-        rules['1.3.0.0'] = False
-        if p_rank == 0 and len(exps) == 3:
-            for k in range(1, vq):
-                rules['1.3.0.0'] |= (b, c) == (3*k, 3*vq)
-                rules['1.3.0.0'] |= (a, b) == (-3*k, -3*vq)
-                rules['1.3.0.0'] |= b == 0 and (a, c) in ((-3, 3*vq), (-3*vq, 3))
+        elif len(factors) == 2:
+            if p_rank == 1:
+                rules['1.2.1.0'] = is_prime(q) and alpha % 2 == 1 and delta % 4 == 0 and epsilon % 4 == (2 - 2*q) % 4
+            elif p_rank == 2:
+                rules['1.2.2.0'] = is_prime(q) and delta % 2 == 1 and abs(epsilon) in (2, 3)
 
-        rules['1.3.1.0'] = is_square(q) and p_rank == 1 and len(exps) == 3 and abs(poly[1]) <= q**0.5 and poly[1]%2 == 1
-        rules['1.3.1.1'] = q % 4 == 3 and q > 3 and is_prime(q) and p_rank == 1 and len(exps) == 3 and abs(a) <= 3 and abs(c) <= 3
+        elif len(factors) == 3:
+            if p_rank == 0:
+                rules['1.3.0.0'] = False
+                for k in range(1, vq):
+                    rules['1.3.0.0'] |= (beta, gamma) == (3*k, 3*vq)
+                    rules['1.3.0.0'] |= (alpha, beta) == (-3*k, -3*vq)
+                    rules['1.3.0.0'] |= beta == 0 and (alpha, gamma) in ((-3, 3*vq), (-3*vq, 3))
+            elif p_rank == 1:
+                rules['1.3.1.0'] = is_square(q) and abs(s) <= q**0.5 and s%2 == 1
+                rules['1.3.1.1'] = q % 4 == 3 and q > 3 and is_prime(q) and abs(alpha) <= 3 and abs(gamma) <= 3
+            elif p_rank == 2:
+                rules['1.3.2.0'] = p != q and ((gamma == vq*p and (beta - alpha in (1, 3))) or (alpha == -vq*p and (gamma - beta in (1, 3))))
+                rules['1.3.2.1'] = q % 4 == 1 and (alpha, beta, gamma) in ((-2, -2, 0), (0, 2, 2))
+            rules['1.3.N.0'] = alpha**2 + beta**2 + gamma**2 == 9
 
-        forbidden = [(-4, -1, 0), (0, 1, 4), (-4, -3, 0), (0, 3, 4), (-3, -2, 0), (-2, 0, 1), (-1, 0, 2), (0, 2, 3), ]
-        rules['1.3.2.0'] = len(exps) == 3 and (a, b, c) in forbidden # p_rank == 2
-
-        rules['1.3.2.1'] = p != q and p_rank == 2 and len(exps) == 3 and ((c == vq*p and (b - a in (1, 3))) or (a == -vq*p and (c - b in (1, 3))))
-        rules['1.3.2.2'] = q % 4 == 1 and p_rank == 2 and len(exps) == 3 and (a, b, c) in ((-2, -2, 0), (0, 2, 2))
-        rules['1.3.N.0'] = len(exps) == 3 and a**2 + b**2 + c**2 == 9
-
+            forbidden = [(-4, -1, 0), (0, 1, 4), (-4, -3, 0), (0, 3, 4), (-3, -2, 0), (-2, 0, 1), (-1, 0, 2), (0, 2, 3), ]
+            rules['1.3.N.1'] = (alpha, beta, gamma) in forbidden
     # resultant 1 method
-    rules['N.N.N.1'] = False
-    f = _real_weil(poly, q).factor()
-    if len(f) == 2:
-        if abs(f[0][0].resultant(f[1][0])) == 1:
-            rules['N.N.N.1'] = True
-    if len(f) == 3:
-        if abs(f[0][0].resultant(f[1][0]*f[2][0])) == 1:
-            rules['N.N.N.1'] = True
-        if abs(f[1][0].resultant(f[0][0]*f[2][0])) == 1:
-            rules['N.N.N.1'] = True
-        if abs(f[2][0].resultant(f[0][0]*f[1][0])) == 1:
-            rules['N.N.N.1'] = True
+    rules['N.N.N.1'] = bool(iso_class._nojac_serre())
+    # if len(factors) == 2:
+    #     rules['N.N.N.1'] = abs(alpha**2 + alpha*delta + epsilon) == 1
+    # elif len(factors) == 3:
+    #     rules['N.N.N.1'] = (abs(alpha*beta - gamma*(alpha+beta) + gamma**2) == 1 or
+    #                         abs(alpha*gamma - beta*(alpha+gamma) + beta**2) == 1 or
+    #                         abs(beta*gamma - alpha*(beta + gamma) + alpha**2) == 1)
 
     rules['N.N.N.0'] = iso_class._nojac_pointcounts()
 
     rules['N.N.N.2'] = iso_class._nojac_howe_lauter()
 
-    rules['N.1.N.0'] = len(exps) == 1 and c < 0 and is_prime(-c) and b**3 + c == -q**2
+    # rules['N.1.N.0'] = len(exps) == 1 and c < 0 and is_prime(-c) and b**3 + c == -q**2
 
     obstructed_discriminants = [-99, -91, -83, -75, -67, -59, -51, -43, -39, -35, -27, -23, -20, -19, -15, -12, -11, -8, -7, -4, -3, 0]
-    rules['N.3.N.0'] = len(exps) == 3 and a==b and b==c and (a**2 - 4*q in obstructed_discriminants)
+    rules['N.3.N.0'] = len(factors) == 3 and alpha==beta and beta==gamma and (alpha**2 - 4*q in obstructed_discriminants)
 
-    rules['N.3.0.0'] = p in (2, 3, 5) and len(exps) == 3 and p_rank == 0 and abs(a) != p*vq and abs(c) != p*vq
-    rules['N.3.0.1'] = p_rank == 0 and len(exps) == 3 and ((a, b) == (-p*vq, -p*vq) or (b, c) == (p*vq, p*vq))
-    rules['N.2.0.0'] = is_prime(q) and p_rank == 0 and q % 8 != 7 and len(exps) == 2 and (a,b,c) == (0, 0, -2*q)
+    rules['N.3.0.0'] = p in (2, 3, 5) and len(factors) == 3 and p_rank == 0 and abs(alpha) != p*vq and abs(gamma) != p*vq
+    rules['N.3.0.1'] = p_rank == 0 and len(factors) == 3 and ((alpha, beta) == (-p*vq, -p*vq) or (beta, gamma) == (p*vq, p*vq))
+    rules['N.2.0.0'] = is_prime(q) and p_rank == 0 and q % 8 != 7 and len(factors) == 2 and (alpha,delta,epsilon) == (0, 0, -4*q)
 
     return rules
+
 
 def sort_data(data=None, source=False, dest='undetected'):
     '''Sort data according to rules found in our_jacobi_rules. Original and destination data sets can be set with optional arguments.'''
@@ -251,6 +267,7 @@ def sort_data(data=None, source=False, dest='undetected'):
             for poly in polys:
                 counts[source][(exps, slope)] += 1
                 guess = our_jacobi_rules(poly[0], slope, q, exps, poly[1])
+                
                 if not (True in guess.values()):
                     counts[dest][(exps, slope)] += 1
                     data[dest][(exps, slope)][q].append(poly)
