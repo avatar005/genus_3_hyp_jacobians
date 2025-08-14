@@ -1,38 +1,37 @@
 from collections import defaultdict
-from sage.all import GF, PolynomialRing, GL, VectorSpace, gcd, prod
-import itertools
+from sage.all import GF, PolynomialRing, GL, VectorSpace, gcd
 from sage.libs.gap.libgap import libgap as gap
 
 def orbit_reps(n):
-    '''Calls the gap function defined in "generate_q.g" in order to produce the list of
+    '''Calls the gap function defined in "generate_v.g" in order to produce the list of
     q's used in the next step of the algorithm.'''
 
     # run the gap function
-    gap.eval('Read("generate_q.g")')
-    result = gap.eval(f'gen_qs({n})')
+    gap.eval('Read("generate_v.g")')
+    result = gap.eval(f'gen_vs({n})')
 
     # interpret the result as Sage objects
     result = list(result)
     F = GF(2**n, 'a')
+    a = F.gen()
     R = PolynomialRing(F, 'x')
     x = R.gen()
     out = []
     for poly in result:
         coeffs = gap.CoefficientsOfUnivariatePolynomial(poly).sage()
-        coeffs = [F(c) for c in coeffs]
+        coeffs = [F(str(c)) for c in coeffs]
         f = sum(coeffs[i] * x**i for i in range(len(coeffs)))
         out.append(f)
     return(out)
 
 
-def generate_hyperelliptics_char2(n, QS=None):
+def generate_hyperelliptics_char2(n, VS=None):
     """
-    Generates all isomorphism classes of genus 3 hyperelliptic curves y^2 + q(x)y = p(x)
+    Generates all isomorphism classes of genus 3 hyperelliptic curves y^2 + v(x)y = u(x)
         over the field k = \mathbb{F}_{2^n}.
-    Inputs are n, the degree of the extension over \mathbb{F}_2, and QS is a list of all candidate
-        polynomials q(x), as produced by the preceeding function gen_qs(n).
-    The output/ is a dictionary mapping each q(x) to a list of polynomials p(x) such that the set of
-        all pairs (q(x), p(x))/\m determines the desired set of isomorphism classes.
+    Inputs are n, the degree of the extension over \mathbb{F}_2, and VS is a list of all candidate
+        polynomials v(x), as produced by the preceeding function orbit_reps(n).
+    The output/ is a generator that produces all pairs v, u determining the desired set of isomorphism classes.
     """
    
     F = GF(2**n, 'a')
@@ -45,7 +44,7 @@ def generate_hyperelliptics_char2(n, QS=None):
 
     def g_action(level, g, P):
         """
-        Computes the action of G = GL_2(k) on the ring k[x], as described in [CITE OUR PAPER or XARLES or LIU].
+        Computes the action of G = GL_2(k) on the ring k[x], as described in [Borodin, May 2025].
         Level is the degree of the action, g is an element of G, and P is an element of k[x].
         The output is the polynomial \psi_{level}(g)(P).
         """
@@ -76,23 +75,37 @@ def generate_hyperelliptics_char2(n, QS=None):
                     v[i*9 + exp] = 1
         return v
 
-    if not QS:
-        Q3 = orbit_reps(n) # We compute, or use an existing, list of all possible candidate polynomials q(x).
-    else:
-        Q3 = QS
+    def smooth(u,v):
+        """
+        checks the conditions due to Xarles for whether y^2 + q(x) y = p(x) is hyperelliptic
+        """
+        if not isinstance(u, int):
+            u_lift = S.lift(u)
+            u_deriv = u_lift.derivative()
+        else:
+            u_lift = u
+            u_deriv = 0
+        return gcd(v, u_deriv**2 + (v.derivative()**2)*u_lift) == 1 and (v.degree() == 4 or u_lift.monomial_coefficient(S.lift(x**7))**2 != u_lift.monomial_coefficient(S.lift(x**8))*v.monomial_coefficient(S.lift(x**3))**2)
 
-    print("Got q's:", Q3)
-    print("Number of q's:", len(Q3))
+
+    if not VS:
+        V_set = orbit_reps(n) # We compute, or use an existing, list of all possible candidate polynomials q(x).
+    else:
+        V_set = VS
+
+    print("Got v's:", V_set)
+    print("Number of v's:", len(V_set))
 
     basis = [a**i * S(x**j) for i in range(n) for j in range(9)] # this vector space is equivalent as a set to the ring R, but for later purposes
     V = VectorSpace(GF(2), 9*n)                                # it is advantageous to perform computations over \mathbb{F}_2
 
-    Vq = defaultdict(list) # stores the list of p(x) for each q(x), such that y^2 + q(x) y + p(x) is representative
+    # U_set = defaultdict(list) # stores the list of u(x) for each v(x), such that y^2 + u(x) y + v(x) is representative
                            # of a distinct isomorphism class of curves.
 
-    for q in Q3: # iterate over each generated q(x).
-        print("q value:", q)
-        basis_U = [a**j * x**i * q + a**(2*j) * x**(2*i) for j in range(n) for i in range(5)] # the symbolic basis of the space of polynomials
+    count = 0
+    for v in V_set: # iterate over each generated v(x).
+        print("v value:", v)
+        basis_U = [a**j * x**i * v + a**(2*j) * x**(2*i) for j in range(n) for i in range(5)] # the symbolic basis of the space of polynomials
                                                                                           # of the form r(x)^2 + q(x)r(x)
         new_basis_U = [basechange(f) for f in basis_U]  # computes the appropriate representation
         U = V.subspace([V(base) for base in new_basis_U]) # and here as a subspace of the space of polynomials
@@ -100,52 +113,44 @@ def generate_hyperelliptics_char2(n, QS=None):
         candidates = set()
         for coset in Q:
             vec = tuple(Q.lift(coset)) # chooses a vector representative in the quotient space
-            p = sum(bit * b for bit, b in zip(vec, basis)) # computes the associated polynomial in U according to the symbolic basis
-            candidates.add(p)
-        Rq = R(q)
-        stab_q = [A for A in G if g_action(4, A, q) == q] # this is the stabilizer of q(x) in the general linear group
+            u = sum(bit * b for bit, b in zip(vec, basis)) # computes the associated polynomial in U according to the symbolic basis
+            candidates.add(u)
+        Rq = R(v)
+        stab_v = [A for A in G if g_action(4, A, v) == v] # this is the stabilizer of q(x) in the general linear group
         while candidates:
-            p = candidates.pop()
-            if p == 0:
-                p_deg = -1
+            u = candidates.pop()
+            if u == 0:
+                u_deg = -1
             else:
-                p_deg = max(i for i, c in enumerate(p.list()) if c!=0)
-            m = max(2*q.degree(), p_deg)
+                u_deg = max(i for i, c in enumerate(u.list()) if c!=0)
+            m = max(2*v.degree(), u_deg)
 
             if not m in [7,8]:
                 continue
 
             orbit = set()
-            for A in stab_q: # for each candidate p(x) we choose one representative from the stab_q orbit
-                fS = S(g_action(8, A, p))
-                vec_f = basechange(fS)
-                cos_f = Q(V(vec_f))
-                lift_f = tuple(Q.lift(cos_f))
-                v = sum(bit * b for bit, b in zip(lift_f, basis))
-                orbit.add(v)
+            for A in stab_v: # for each candidate p(x) we choose one representative from the stab_v orbit
+                uS = S(g_action(8, A, u))
+                vec_u = basechange(uS)
+                cos_u = Q(V(vec_u))
+                lift_u = tuple(Q.lift(cos_u))
+                u_cand = sum(bit * b for bit, b in zip(lift_u, basis))
+                orbit.add(u_cand)
             candidates -= orbit
-            Vq.setdefault(Rq, []).append(p)
+            if smooth(u, v):
+                count += 1
+                yield v, u
+        
 
-    hyperelliptics = {}
-    def smooth(p,q):
-        """
-        checks the conditions due to Xarles for whether y^2 + q(x) y = p(x) is hyperelliptic
-        """
-        if not isinstance(p, int):
-            p_lift = S.lift(p)
-            p_deriv = p_lift.derivative()
-        else:
-            p_lift = p
-            p_deriv = 0
-        return gcd(q, p_deriv**2 + (q.derivative()**2)*p_lift) == 1 and (q.degree() == 4 or p_lift.monomial_coefficient(S.lift(x**7))**2 != p_lift.monomial_coefficient(S.lift(x**8))*q.monomial_coefficient(S.lift(x**3))**2)
+    # hyperelliptics = {}
 
-    for q in Vq:
-        p_list = []
-        for p in Vq[q]:
-            if smooth(p,q):
-                p_list.append(p)
-        hyperelliptics[q] = p_list
+    # for v in U_set:
+    #     u_list = []
+    #     for u in U_set[v]:
+    #         if smooth(u,v):
+    #             u_list.append(u)
+    #     hyperelliptics[v] = u_list
 
-    print("Total hyperellitpics:", sum(len(l) for l in hyperelliptics.values()))
-    return hyperelliptics
+    print("Total hyperellitpics:", count)
+    # return hyperelliptics
 

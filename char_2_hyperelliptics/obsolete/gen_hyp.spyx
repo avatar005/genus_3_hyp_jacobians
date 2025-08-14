@@ -1,0 +1,305 @@
+from collections import defaultdict
+from sage.all import GF, PolynomialRing, GL, VectorSpace, gcd, prod
+import itertools
+
+def gen_qs(n):
+    K = GF(2**n, 'a')
+    a = K.gen()
+    lst = []
+    for n_inf,n_0,n_1,n_d1,n_d2,n_d3,n_d4 in itertools.product(range(5),range(3),range(2),range(5),range(3),range(2),range(2)):
+        if n_inf >= n_0 and n_0 >= n_1 and (n_inf + n_0 + n_1 + n_d1 + 2*n_d2 + 3*n_d3 + 4*n_d4 == 4):
+            if n_1 == 0 and n_d1 != 0:
+                continue
+            lst.append((n_inf,n_0,n_1,n_d1,n_d2,n_d3,n_d4))
+    R = PolynomialRing(K, 'x')
+    x = R.gen()
+    irred_pol = {'0':[1]}
+    for d in range(5):
+        for pol in R.polynomials(of_degree = d):
+            if pol.is_monic() is True and pol.is_irreducible() is True:
+                if pol == R(x) or pol == R(x + 1):
+                    continue
+                try:
+                    irred_pol[str(d)].append(pol)
+                except:
+                    irred_pol[str(d)] = [pol]
+
+    Q6 = set()
+    for ele in lst:
+        print(ele)
+        possible_polys = {}
+        for ind,count in enumerate(ele):
+            if ind == 1 and count != 0:
+                possible_polys['0'] = [x**count]
+            elif ind == 2 and count != 0:
+                possible_polys['1'] = [(x+1)**count]
+            elif ind > 2 and count != 0:
+                for pol_tup in itertools.product(irred_pol[str(ind-2)],repeat=int(count)):
+                    try:
+                        possible_polys[str(ind-1)].append(prod(pol_tup))
+                    except:
+                        possible_polys[str(ind-1)] = [prod(pol_tup)]
+        polys = set([prod(i) for i in list(itertools.product(*possible_polys.values()))])
+        Q6 = Q6.union(polys)
+
+    Q6 = {R(i) for i in Q6}
+    GL2, PGL2 = GL(2, K), []
+    for M in GL2:
+        m = M.matrix()
+        if m[0][0] == 1 or (m[0][0] == 0 and m[1][0] == 1):
+            PGL2.append(m)
+
+    def mobius(pol,g):
+        return ((g[1][0]*x + g[1][1])**(d)*pol((g[0][0]*x + g[0][1])/(g[1][0]*x + g[1][1]))).numerator().monic()
+
+    for cutoff in [10, 50]:
+        reps = Q6.copy()
+        for i, M in enumerate(PGL2):
+            if i%20 == 0:
+                print(i, len(reps))
+            l = len(reps)
+            temp = reps.copy()
+            for j, q in enumerate(reps):
+                if j == min(cutoff, int(l*0.2)) and l - len(temp) == 0:
+                    break
+                if q in temp:
+                    r = mobius(q, M)
+                    if r == 1:
+                        print(q, r, M, r in temp, r != q)
+                    if r in temp and r != q:
+                        temp.remove(r)
+            reps = temp
+        Q6 = reps
+    reps = []
+    seen = set()
+    for i, q in enumerate(Q6):
+        print(i)
+        if q in seen:
+            continue
+        if q == 1:
+            seen.add(q)
+            reps.append(q)
+            print("1 appended")
+            continue
+        orb = {mobius(q, M) for M in PGL2}
+        rep = min(orb, key=lambda p: tuple(p.coefficients(sparse=False)))
+        reps.append(rep)
+        seen.update(orb)
+
+    Q6 = reps
+    return Q6
+
+def generate_hyperelliptics_char2(n, QS=None):
+    """
+    Generates all isomorphism classes of genus 3 hyperelliptic curves y^2 + q(x)y = p(x)
+        over the field k = \mathbb{F}_{2^n}.
+    Inputs are n, the degree of the extension over \mathbb{F}_2, and QS is a list of all candidate
+        polynomials q(x), as produced by the preceeding function gen_qs(n).
+    The output is a dictionary mapping each q(x) to a list of polynomials p(x) such that the set of
+        all pairs (q(x), p(x)) determines the desired set of isomorphism classes.
+    """
+   
+    F = GF(2**n, 'a')
+    a = F.gen()
+    R = PolynomialRing(F, 'x')
+    x = R.gen()
+    S = R.quotient(x**9, names='x')
+    x = S.gen()
+    G = GL(2, F)
+
+    def g_action(level, g, P):
+        """
+        Computes the action of G = GL_2(k) on the ring k[x], as described in [CITE OUR PAPER or XARLES or LIU].
+        Level is the degree of the action, g is an element of G, and P is an element of k[x].
+        The output is the polynomial \psi_{level}(g)(P).
+        """
+        [[a,b], [c,d]] = g.list()
+        A, B = a*x + b, c*x + d
+        coeffs = P.list() + [0]*(level+1 - len(P.list()))
+        result = sum(p_i * A**i * B**(level - i)
+                for i, p_i in enumerate(coeffs) if p_i)
+        return result
+
+    def basechange(f):
+        """
+        Computes the representation of a polynomial f \in k[x] as an element of
+            the \mathbb{F}_2 vector space used below.
+        Input is a polynomial in the ring k[x]/(x^9).
+        Output is a list of length 9*n, corresponding to the basis described below.
+        """
+        if f == 1:
+            return [1] + [0] * (9*n - 1)
+        coeffs = f.list()
+        coeffs += [0] * (9 - len(coeffs))
+        v = [0]*(9*n)
+        for exp, c in enumerate(coeffs):
+            rep = c.polynomial().list()
+            rep += [0] * (n - len(rep))
+            for i, bit in enumerate(rep):
+                if bit:
+                    v[i*9 + exp] = 1
+        return v
+
+    if not QS:
+        Q3 = gen_qs(n) # We compute, or use an existing, list of all possible candidate polynomials q(x).
+    else:
+        Q3 = QS
+
+    basis = [a**i * S(x**j) for i in range(n) for j in range(9)] # this vector space is equivalent as a set to the ring R, but for later purposes
+    V = VectorSpace(GF(2), 9*n)                                # it is advantageous to perform computations over \mathbb{F}_2
+
+    Vq = defaultdict(list) # stores the list of p(x) for each q(x), such that y^2 + q(x) y + p(x) is representative
+                           # of a distinct isomorphism class of curves.
+
+    for q in Q3: # iterate over each generated q(x).
+        basis_U = [a**j * x**i * q + a**(2*j) * x**(2*i) for j in range(n) for i in range(5)] # the symbolic basis of the space of polynomials
+                                                                                          # of the form r(x)^2 + q(x)r(x)
+        new_basis_U = [basechange(f) for f in basis_U]  # computes the appropriate representation
+        U = V.subspace([V(base) for base in new_basis_U]) # and here as a subspace of the space of polynomials
+        Q = V.quotient(U) # computes the quotient
+        candidates = set()
+        for coset in Q:
+            vec = tuple(Q.lift(coset)) # chooses a vector representative in the quotient space
+            p = sum(bit * b for bit, b in zip(vec, basis)) # computes the associated polynomial in U according to the symbolic basis
+            candidates.add(p)
+        Rq = R(q)
+        stab_q = [A for A in G if g_action(4, A, q) == q] # this is the stabilizer of q(x) in the general linear group
+        while candidates:
+            p = candidates.pop()
+            if p == 0:
+                p_deg = -1
+            else:
+                p_deg = max(i for i, c in enumerate(p.list()) if c!=0)
+            m = max(2*q.degree(), p_deg)
+
+            if not m in [7,8]:
+                continue
+
+            orbit = set()
+            for A in stab_q: # for each candidate p(x) we choose one representative from the stab_q orbit
+                fS = S(g_action(8, A, p))
+                vec_f = basechange(fS)
+                cos_f = Q(V(vec_f))
+                lift_f = tuple(Q.lift(cos_f))
+                v = sum(bit * b for bit, b in zip(lift_f, basis))
+                orbit.add(v)
+            candidates -= orbit
+            Vq.setdefault(Rq, []).append(p)
+
+    hyperelliptics = {}
+    def smooth(p,q):
+        """
+        checks the conditions due to Xarles for whether y^2 + q(x) y = p(x) is hyperelliptic
+        """
+        if not isinstance(p, int):
+            p_lift = S.lift(p)
+            p_deriv = p_lift.derivative()
+        else:
+            p_lift = p
+            p_deriv = 0
+        return gcd(q, p_deriv**2 + (q.derivative()**2)*p_lift) == 1 and (q.degree() == 4 or p_lift.monomial_coefficient(S.lift(x**7))**2 != p_lift.monomial_coefficient(S.lift(x**8))*q.monomial_coefficient(S.lift(x**3))**2)
+
+    for q in Vq:
+        p_list = []
+        for p in Vq[q]:
+            if smooth(p,q):
+                p_list.append(p)
+        hyperelliptics[q] = p_list
+
+    return hyperelliptics
+
+
+#def g3_hyp_even_5(n):
+#    Q3 = gen_qs(n)
+#    F = GF(2**n, 'a')
+#    a = F.gen()
+#    R = PolynomialRing(F, 'x')
+#    x = R.gen()
+#    S = R.quotient(x**9, names='x')
+#    x = S.gen()
+#    G = GL(2, F)
+#    PGL = [A for A in G if (A.list()[0][0]==1 or (A.list()[0][0] == 0 and A.list()[1][0] == 1))]
+#    # G_lst = list(G.list())
+#    def g_action(level, g, P):
+#        [[a,b], [c,d]] = g.list()
+#        A, B = a*x + b, c*x + d
+#        coeffs = P.list() + [0]*(level+1 - len(P.list()))
+#        result = sum(p_i * A**i * B**(level - i)
+#                for i, p_i in enumerate(coeffs) if p_i)
+#        return result
+#
+#    basis = [a**i * S(x**j) for i in range(n) for j in range(9)]
+#    V = VectorSpace(GF(2), 9*n)
+#    print('step 4')
+#
+#    def basechange(f):
+#        if f == 1:
+#            return [1] + [0] * (9*n - 1)
+#        coeffs = f.list()
+#        coeffs += [0] * (9 - len(coeffs))
+#        v = [0]*(9*n)
+#        for exp, c in enumerate(coeffs):
+#            rep = c.polynomial().list()
+#            rep += [0] * (n - len(rep))
+#            for i, bit in enumerate(rep):
+#                if bit:
+#                    v[i*9 + exp] = 1
+#        return v
+#
+#    Vq = defaultdict(list)
+#    print(len(Q3))
+#    for q in Q3:
+#        print(q)
+#        basis_PhiV = [a**j * x**i * q + a**(2*j) * x**(2*i) for j in range(n) for i in range(5)]
+#        new_basis_PhiV = [basechange(f) for f in basis_PhiV]
+#        PhiV = V.subspace([V(base) for base in new_basis_PhiV])
+#        Quotient = V.quotient(PhiV)
+#        candidates = set()
+#        for coset in Quotient:
+#            vec = tuple(Quotient.lift(coset))
+#            p = sum(bit * b for bit, b in zip(vec, basis))
+#            candidates.add(p)
+#        Rq = R(q)
+#        stab_q = [A for A in G if g_action(4, A, q) == q]
+#        while candidates:
+#            p = candidates.pop()
+#            if p == 0:
+#                p_deg = -1
+#            else:
+#                p_deg = max(i for i, c in enumerate(p.list()) if c!=0)
+#            m = max(2*q.degree(), p_deg)
+#
+#            if not m in [7,8]:
+#                continue
+#
+#            orbit = set()
+#            for A in stab_q:
+#                fS = S(g_action(8, A, p))
+#                vec_f = basechange(fS)
+#                cos_f = Quotient(V(vec_f))
+#                lift_f = tuple(Quotient.lift(cos_f))
+#                v = sum(bit * b for bit, b in zip(lift_f, basis))
+#                orbit.add(v)
+#            candidates -= orbit
+#            Vq.setdefault(Rq, []).append(p)
+#
+#    hyperelliptics = {}
+#    def smooth(p,q):
+#        if not isinstance(p, int):
+#            p_lift = S.lift(p)
+#            p_deriv = p_lift.derivative()
+#        else:
+#            p_lift = p
+#            p_deriv = 0
+#        return q.gcd(p_deriv**2 + (q.derivative()**2)*p_lift) == 1 and (q.degree() == 4 or p_lift.monomial_coefficient(S.lift(x**7))**2 != p_lift.monomial_coefficient(S.lift(x**8))*q.monomial_coefficient(S.lift(x**3))**2)
+#    print('step 5')
+#    for q in Vq:
+#        p_list = []
+#        for p in Vq[q]:
+#            if smooth(p,q):
+#                p_list.append(p)
+#        hyperelliptics[q] = p_list
+#
+#    return hyperelliptics
+#
+#

@@ -1,26 +1,36 @@
-from sage.misc.cython import cython_import_all
-import os
+import os, shutil, sys
+gen_hyp = load("gen_hyp_using_gap.sage") 
 
-gen_hyp = cython_import_all("gen_hyp.spyx", globals())
-import os
-n = 2
-final_hyp = generate_hyperelliptics_char2(n)
-print(sum(len(x) for x in final_hyp.values()))
-num_blocks = 4096
+# set parameters
+n = int(sys.argv[1])
+
+# prepare output location
+num_blocks = int(sys.argv[2])
 files = []
 try:
-    os.rmdir("data"+str(2**n))
+    shutil.rmtree("data"+str(2**n))
 except:
     pass
 os.mkdir("data"+str(2**n))
+
+# create file handles
 for i in range(num_blocks):
     files.append(open(os.path.join("data"+str(2**n), "block_"+str(i)), 'a+'))
-i = 0
-for q in final_hyp:
-    print(q)
-    for p in final_hyp[q]:
-        files[i%num_blocks].write(str(q.list()) + ';' + str(p.list()) + '\n')
-        i += 1
 
-for file in files:
-    file.close()
+try:
+    # write data
+    i = 0
+    for v, u in generate_hyperelliptics_char2(n):
+        files[i%num_blocks].write(str(v.list()) + ';' + str(u.list()) + '\n')
+        i += 1
+    # close all files
+    for file in files:
+        file.close()
+
+# if user interrupts, write output anyways
+except KeyboardInterrupt:
+    # close all files
+    for file in files:
+        file.close()
+
+
