@@ -166,14 +166,14 @@ def our_jacobi_rules(poly, slope, q, factors, coeffs):
 
     vq = log(q, p)
         
-    # allows use of pre-implemented functions from https://github.com/roed314/abvar-fq/blob/master/isogeny_classes.sage#L3115
+    # allows use of pre-implemented functions from https://github.com/roed314/abvar-fq/blob/master/isogeny_classes.sage
     iso_class = IsogenyClass(poly=poly)
 
     # initialize rule dictionary
     rules = {}
 
     # compute rules. Formatted descriptions of rules can be found in 
-    # "Classifying Weil Polynomials of Jacobians of Genus 3 Hyperelliptic Curves over Finite Fields" by Borodin and May
+    # "Hyperelliptic Jacobians in Isogeny Classes of Abelian Threefolds Over Finite Fields" by Borodin and May
 
     if p == 2:
         rules['0.N.N.0'] = (s%2, t%2, u%2) in ((0, 1, 1), (1, 0, 1), (1, 1, 0))
@@ -195,8 +195,7 @@ def our_jacobi_rules(poly, slope, q, factors, coeffs):
         if len(factors) == 1:
             if p_rank == 0:
                 rules['1.1.0.0'] = is_prime(q) and q % 3 == 1 and slope == 1 and b > -q and b%q == 0 and (b/q) % 2 == 0
-                # rules['1.1.0.0'] = is_prime(q) and q % 3 == 1 and p_rank == 0 and len(exps) == 1 and slopes == 1 and b > 2*q and b%q == 0 and (b/q) % 2 == 1
-                rules['1.1.0.1'] = q == p**2 and ((b == -3*q and c%q == 0 and (c/q)%2 == 1) or (b in (-q, -2*q) and abs(a) == 2*p))#or (b > 2*q and c % q == 0 and (c/q) % 2 == 1))
+                rules['1.1.0.1'] = q == p**2 and ((b == -3*q and c%q == 0 and (c/q)%2 == 1) or (b in (-q, -2*q) and abs(a) == 2*p))
 
         elif len(factors) == 2:
             if p_rank == 1:
@@ -205,13 +204,13 @@ def our_jacobi_rules(poly, slope, q, factors, coeffs):
                 rules['1.2.2.0'] = is_prime(q) and delta % 2 == 1 and abs(epsilon) in (2, 3)
 
         elif len(factors) == 3:
-            if p_rank == 0:
-                rules['1.3.0.0'] = False
-                for k in range(1, vq):
-                    rules['1.3.0.0'] |= (beta, gamma) == (3*k, 3*vq)
-                    rules['1.3.0.0'] |= (alpha, beta) == (-3*k, -3*vq)
-                    rules['1.3.0.0'] |= beta == 0 and (alpha, gamma) in ((-3, 3*vq), (-3*vq, 3))
-            elif p_rank == 1:
+            # if p_rank == 0:
+            #     rules['1.3.0.0'] = False
+            #     for k in range(1, vq):
+            #         rules['1.3.0.0'] |= (beta, gamma) == (3*k, 3*vq)
+            #         rules['1.3.0.0'] |= (alpha, beta) == (-3*k, -3*vq)
+            #         rules['1.3.0.0'] |= beta == 0 and (alpha, gamma) in ((-3, 3*vq), (-3*vq, 3))
+            if p_rank == 1:
                 rules['1.3.1.0'] = is_square(q) and abs(s) <= q**0.5 and s%2 == 1
                 rules['1.3.1.1'] = q % 4 == 3 and q > 3 and is_prime(q) and abs(alpha) <= 3 and abs(gamma) <= 3
             elif p_rank == 2:
@@ -222,26 +221,24 @@ def our_jacobi_rules(poly, slope, q, factors, coeffs):
             forbidden = [(-4, -1, 0), (0, 1, 4), (-4, -3, 0), (0, 3, 4), (-3, -2, 0), (-2, 0, 1), (-1, 0, 2), (0, 2, 3), ]
             rules['1.3.N.1'] = (alpha, beta, gamma) in forbidden
     # resultant 1 method
-    rules['N.N.N.1'] = bool(iso_class._nojac_serre())
-    # if len(factors) == 2:
-    #     rules['N.N.N.1'] = abs(alpha**2 + alpha*delta + epsilon) == 1
-    # elif len(factors) == 3:
-    #     rules['N.N.N.1'] = (abs(alpha*beta - gamma*(alpha+beta) + gamma**2) == 1 or
-    #                         abs(alpha*gamma - beta*(alpha+gamma) + beta**2) == 1 or
-    #                         abs(beta*gamma - alpha*(beta + gamma) + alpha**2) == 1)
+    rules['N.N.N.1'] = False
+    if len(factors) == 2:
+        rules['N.N.N.1'] = abs(alpha**2 - alpha*delta + epsilon) == 1
+    elif len(factors) == 3:
+        rules['N.N.N.1'] = (abs((beta - alpha)*(gamma - alpha)) == 1 or
+                            abs((alpha - beta)*(gamma - beta)) == 1 or
+                            abs((alpha - gamma)*(beta - gamma)) == 1)
 
+    
     rules['N.N.N.0'] = iso_class._nojac_pointcounts()
 
     rules['N.N.N.2'] = iso_class._nojac_howe_lauter()
-
-    # rules['N.1.N.0'] = len(exps) == 1 and c < 0 and is_prime(-c) and b**3 + c == -q**2
 
     obstructed_discriminants = [-99, -91, -83, -75, -67, -59, -51, -43, -39, -35, -27, -23, -20, -19, -15, -12, -11, -8, -7, -4, -3, 0]
     rules['N.3.N.0'] = len(factors) == 3 and alpha==beta and beta==gamma and (alpha**2 - 4*q in obstructed_discriminants)
 
     rules['N.3.0.0'] = p in (2, 3, 5) and len(factors) == 3 and p_rank == 0 and abs(alpha) != p*vq and abs(gamma) != p*vq
     rules['N.3.0.1'] = p_rank == 0 and len(factors) == 3 and ((alpha, beta) == (-p*vq, -p*vq) or (beta, gamma) == (p*vq, p*vq))
-    rules['N.2.0.0'] = is_prime(q) and p_rank == 0 and q % 8 != 7 and len(factors) == 2 and (alpha,delta,epsilon) == (0, 0, -4*q)
 
     return rules
 
