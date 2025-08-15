@@ -1,3 +1,5 @@
 char_2_hyperelliptics/data*
+char_2_hyperelliptics_threaded/data*
+./data
 
 *.dict

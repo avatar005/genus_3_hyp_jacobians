@@ -1,3 +1,7 @@
+# This file was pulled from https://github.com/roed314/abvar-fq/blob/master/isogeny_classes.sage
+# on June 3, 2025. Author information is contained in the docstring below. We make use of its 
+# functionality in our classification. 
+
 r"""
 This file contains classes for computing isogeny classes of Abelian varieties over finite fields.
 
