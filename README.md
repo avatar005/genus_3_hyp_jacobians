@@ -71,5 +71,3 @@ plot(data, factoring, slope_type, q, factored=True):
 ```
 
 function allows 3-dimensional plots of the data for a given factoring type (given as `(2,2,2)`, `(2,4)` or `(6,)`), $p$-rank (given in terms of slope type &mdash; see the beginnign of the source code for the definitions of `slope_type` in terms of the Newton polygon), and $q$ (size of finite field). The `factored` flag allows one to control whether the Weil polynomial is factored when the three parameters are extracted. There are also special values for $q$ allowing multiple plots to be produced simultaneously &mdash; see the docstring of the function for details. This function is highly customizable from within the source code. 
-
-<h2>Add modular condition checkers</h2>
