@@ -1,1 +1,0 @@
-Running `generate_weil_poly.bash` from bash will generate the hyperelliptics and point counts in a directory called dataq. Need to modify `generate_weil_poly.bash` to set the field size and the number of blocks+threads used. 
