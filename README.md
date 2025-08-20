@@ -14,7 +14,7 @@ The first thing one must do is get the data. This can be done by running
 data = get_data()
 ```
 
-to store the data as a dictionary in the variable `data`. The data is stored as a dictionar keyed by `[presence of hyperelliptic][(factors), slope type][field]`. For more details, see source code. 
+to store the data as a dictionary in the variable `data`. The data is stored as a dictionary keyed by `[presence of hyperelliptic][(factors), slope type][field]`. For more details, see source code. 
 
 To see data as text files, run
 
@@ -38,7 +38,7 @@ The `sort_data()` function uses the rules found in `our_jacobi_rules()`. These r
 
 One of the most useful functions of this codebase is producing statistics regarding which polynomials have and have not been classified.
 
-To get coarse statistics on how many polynomials get classified by the rules, use 
+To get coarse statistics on how many polynomials get classified by the rules, use
 
 ```python
 print_statistics(data)
@@ -71,3 +71,12 @@ plot(data, factoring, slope_type, q, factored=True):
 ```
 
 function allows 3-dimensional plots of the data for a given factoring type (given as `(2,2,2)`, `(2,4)` or `(6,)`), $p$-rank (given in terms of slope type &mdash; see the beginnign of the source code for the definitions of `slope_type` in terms of the Newton polygon), and $q$ (size of finite field). The `factored` flag allows one to control whether the Weil polynomial is factored when the three parameters are extracted. There are also special values for $q$ allowing multiple plots to be produced simultaneously &mdash; see the docstring of the function for details. This function is highly customizable from within the source code. 
+
+<h2>Modular Restrictions</h2>
+
+There is also a function
+
+```python
+generate_modular_obstructions(data, modulus, exps, slopes)
+```
+which generates all valid restrictions on the residue classes of the coefficients modulo the modulus in the categories having `exps` and `slopes` as their classifiers. By default, this searches for conditions that are true for all `exps` and `slopes`. 

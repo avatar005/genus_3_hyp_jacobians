@@ -5,12 +5,19 @@ from collections import defaultdict
 import pickle
 import os
 from functools import partial
-from termcolor import cprint
+
+try:
+    from termcolor import cprint
+except ImportError:
+    def cprint(*args):
+        print(*args)
+
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
 from matplotlib.widgets import CheckButtons
 import os, shutil
+import itertools
 attach("isogeny_classes.sage")
 
 RZ = PolynomialRing(ZZ, 'x')
@@ -37,8 +44,11 @@ char = {2:2, 3:3, 4:2, 5:5, 7:7, 8:2, 9:3, 11:11, 13:13, 16:2, 17:17, 19:19, 23:
 exp_patterns = ((6,), (2, 4), (2, 2, 2))
 
 def N(g, q):
-    '''predicted counts of isogeny classes based on [DiPippo, Howe 2000]'''
+    '''predicted counts of isogeny classes based on [DiPippo, Howe 2000]
+    This predicts the number of ordinary isogeny classes extremely well and the total number of isogeny classes less closely. 
+    However, as q -> oo, these converge, so at the limit this predicts both and has the correct asymptotic behavior for both.'''
     count = q**(g*(g+1)/4)
+    count *= euler_phi(q)/q
     count *= 2**g / factorial(g)
     count *= prod([((2*i)/(2*i - 1))**(g + 1 - i) for i in range(1, g + 1)])
     return float(count)
@@ -313,7 +323,7 @@ def print_statistics(data=None, table=False):
 
     # initialize variables
     counts = defaultdict(lambda: defaultdict(int))
-    headers = ['(Factoring, $p$-rank)', 'Undetected by our rules', 'Undetected by all rules']
+    headers = ['(Factoring, $p$-rank)', 'Undetected by rules']
     array = defaultdict(list)
 
     # compute counts to compute statistics
@@ -547,3 +557,45 @@ class Table:
     def add(self, line):
         '''append a line to an already created Table object.'''
         self.table.append(line)
+
+def generate_modular_obstructions(data=None, modulus=2, exps=exp_patterns, slopes=slope_types.values()):
+    '''generates obstructions on the coefficients of a Weil polynomial that prevent the corresponding
+    isogeny class from containing a Jacobian. One can specify the modulus, and which exponent patterns
+    and slope types to search.'''
+    if not data:
+        data = get_data()
+    
+    for conj_pattern in itertools.product(range(modulus), repeat=3):
+    # for conj_pattern in [(0, 1, 1)]:
+        true_fields = set(primes)
+        for (exp, slope) in itertools.product(exps, slopes):
+            D = data[True][exp, slope]
+            for q, polys in D.items():
+                for poly in polys:
+                    s, t, u = poly[0][1:4]
+                    s, t, u = s%modulus, t%modulus, u%modulus
+                    guess = not (s, t, u) == conj_pattern
+                    
+                    if guess == False:
+                        if q in true_fields:
+                            true_fields.remove(q)
+        
+        applies = set()
+        if true_fields:
+            for (exp, slope) in itertools.product(exps, slopes):
+                D = data[False][exp, slope]
+                for q, polys in D.items():
+                    for poly in polys:
+                        s, t, u = poly[0][1:4]
+                        s, t, u = s%modulus, t%modulus, u%modulus
+                        guess = not (s, t, u) == conj_pattern
+                        
+                        if guess == False and q in true_fields:
+                            applies.add(q)
+                                    
+        if true_fields and applies:
+            print("Remainder pattern", conj_pattern)
+            print("Is true for q in", sorted(true_fields))
+            print("Has cases for q in", sorted(applies))
+            print()
+        
